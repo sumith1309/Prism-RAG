@@ -13,6 +13,15 @@ class DocumentMeta(BaseModel):
     doc_level: int = 1
     classification: str = "PUBLIC"
     created_at: datetime
+    uploaded_by_username: str = ""
+    uploaded_by_role: str = ""
+    disabled_for_roles: list[str] = Field(default_factory=list)
+
+
+class VisibilityUpdate(BaseModel):
+    """Exec-only: roles to HIDE the document from (guest/employee/manager).
+    Executive is never in this list — the exec always retains visibility."""
+    disabled_for_roles: list[str] = Field(default_factory=list)
 
 
 class RetrievedChunk(BaseModel):

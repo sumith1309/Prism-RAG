@@ -373,7 +373,13 @@ def _merge_chunks_rrf(chunk_lists: list[list], k: int = 60):
     return out
 
 
-async def _retrieve_with_timing(query: str, user_level: int, req: ChatRequest, bypass: bool = False):
+async def _retrieve_with_timing(
+    query: str,
+    user_level: int,
+    req: ChatRequest,
+    bypass: bool = False,
+    caller_role: str | None = None,
+):
     t_retrieve = time.perf_counter()
     chunks = await retrieve(
         query=query,
@@ -384,16 +390,22 @@ async def _retrieve_with_timing(query: str, user_level: int, req: ChatRequest, b
         top_k=req.top_k,
         max_doc_level=None if bypass else user_level,
         bypass_rbac=bypass,
+        caller_role=caller_role,
     )
     retrieve_ms = int((time.perf_counter() - t_retrieve) * 1000)
     return chunks, retrieve_ms
 
 
-async def _retrieve_multi(queries: list[str], user_level: int, req: ChatRequest):
+async def _retrieve_multi(
+    queries: list[str],
+    user_level: int,
+    req: ChatRequest,
+    caller_role: str | None = None,
+):
     """Run retrieval for each query variant in parallel, fuse with RRF."""
     t0 = time.perf_counter()
     results = await asyncio.gather(
-        *[_retrieve_with_timing(q, user_level, req) for q in queries],
+        *[_retrieve_with_timing(q, user_level, req, caller_role=caller_role) for q in queries],
         return_exceptions=True,
     )
     chunk_lists = []
@@ -618,7 +630,9 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                     queries = await _multi_query(search_query)
                 else:
                     queries = [search_query]
-                chunks, retrieve_ms = await _retrieve_multi(queries, user.level, req)
+                chunks, retrieve_ms = await _retrieve_multi(
+                    queries, user.level, req, caller_role=user.role
+                )
 
                 # Rerank already done inside retrieve; we expose the split only
                 # for observability. Approximation: generate_ms and rerank_ms
@@ -638,7 +652,7 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                         corrective_retries = 1
                         t_r = time.perf_counter()
                         retry_chunks, _ = await _retrieve_with_timing(
-                            rewritten, user.level, req
+                            rewritten, user.level, req, caller_role=user.role
                         )
                         retrieve_ms += int((time.perf_counter() - t_r) * 1000)
                         if retry_chunks and _passes_bar(retry_chunks):

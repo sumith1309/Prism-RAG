@@ -168,6 +168,7 @@ async def retrieve(
     top_k: int = 5,
     max_doc_level: Optional[int] = None,
     bypass_rbac: bool = False,
+    caller_role: Optional[str] = None,
 ) -> list[RetrievedChunk]:
     """Retrieve top-k chunks for a query.
 
@@ -183,11 +184,34 @@ async def retrieve(
     """
     effective_max_level = None if bypass_rbac else max_doc_level
 
+    # Exec's per-role kill-switch: a doc disabled for the caller's role is
+    # excluded from the candidate set before any search runs, independent of
+    # clearance. The bypass-probe path (used to distinguish refused/general)
+    # ignores this so the classifier can still detect higher-clearance hits.
+    blocked_doc_ids: set[str] = set()
+    if not bypass_rbac and caller_role and caller_role != "executive":
+        blocked_doc_ids = {
+            d.doc_id
+            for d in store.list_documents()
+            if caller_role in (d.disabled_for_roles or "").split(",")
+        }
+
     if doc_ids is None:
         if effective_max_level is not None:
-            doc_ids = [d.doc_id for d in store.list_documents() if int(d.doc_level) <= int(effective_max_level)]
+            doc_ids = [
+                d.doc_id
+                for d in store.list_documents()
+                if int(d.doc_level) <= int(effective_max_level)
+                and d.doc_id not in blocked_doc_ids
+            ]
         else:
-            doc_ids = [d.doc_id for d in store.list_documents()]
+            doc_ids = [
+                d.doc_id
+                for d in store.list_documents()
+                if d.doc_id not in blocked_doc_ids
+            ]
+    else:
+        doc_ids = [d for d in doc_ids if d not in blocked_doc_ids]
     if not doc_ids:
         return []
 

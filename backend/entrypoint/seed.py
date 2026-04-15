@@ -131,7 +131,13 @@ def seed_documents(corpus_dir: Path) -> None:
         level = detect_doc_level(pdf)
         label = LEVEL_TO_LABEL[level]
         print(f"   [{label:12s} · L{level}]  {pdf.name}")
-        doc = ingest_file(pdf, original_filename=pdf.name, doc_level=level)
+        doc = ingest_file(
+            pdf,
+            original_filename=pdf.name,
+            doc_level=level,
+            uploaded_by_username="system",
+            uploaded_by_role="system",
+        )
         total_chunks += doc.chunks
     print(f"==> Ingested {len(pdfs)} PDFs, {total_chunks} total chunks")
 

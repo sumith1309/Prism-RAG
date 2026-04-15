@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 const ORDER: Classification[] = ["PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED"];
 
 export function Sidebar() {
-  const { documents, upload, remove, uploading } = useDocuments();
+  const { documents, upload, remove, refresh, uploading } = useDocuments();
   const { user, sidebarTab, setSidebarTab } = useAppStore();
   const canDelete = (user?.level ?? 0) >= 3;
 
@@ -73,6 +73,7 @@ export function Sidebar() {
                           doc={doc}
                           onDelete={() => remove(doc.doc_id, doc.filename)}
                           canDelete={canDelete}
+                          onUpdated={() => refresh()}
                         />
                       ))}
                     </div>

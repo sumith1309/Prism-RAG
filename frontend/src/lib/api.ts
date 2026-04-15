@@ -80,6 +80,22 @@ export async function deleteDocument(docId: string): Promise<void> {
   if (!res.ok) throw new Error(`delete failed: ${res.status}`);
 }
 
+export async function updateDocumentVisibility(
+  docId: string,
+  disabledForRoles: string[]
+): Promise<DocumentMeta> {
+  const res = await authFetch(`${API_BASE}/api/documents/${docId}/visibility`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ disabled_for_roles: disabledForRoles }),
+  });
+  if (!res.ok) {
+    if (res.status === 403) throw new Error("Executive access required");
+    throw new Error(`visibility update failed: ${res.status}`);
+  }
+  return res.json();
+}
+
 // ── Threads ─────────────────────────────────────────────────────────────────
 
 export async function listThreads(): Promise<ThreadSummary[]> {

@@ -125,8 +125,15 @@ def ingest_file(
     path: Path,
     original_filename: Optional[str] = None,
     doc_level: int = 1,
+    uploaded_by_username: str = "",
+    uploaded_by_role: str = "",
 ) -> store.Document:
-    """Ingest a file. doc_level defaults to 1 (PUBLIC); the RBAC seeder overrides it."""
+    """Ingest a file. doc_level defaults to 1 (PUBLIC); the RBAC seeder overrides it.
+
+    ``uploaded_by_*`` capture who performed the upload — stored on the
+    Document row so the Knowledge tab can show "by {username} · {role}".
+    Seeded corpus uses ``uploaded_by_username="system"``.
+    """
     path = Path(path)
     if path.suffix.lower() not in SUPPORTED_EXTS:
         raise ValueError(f"Unsupported file type: {path.suffix}")
@@ -210,6 +217,8 @@ def ingest_file(
         sections=",".join(sections),
         doc_level=int(doc_level),
         created_at=datetime.utcnow(),
+        uploaded_by_username=uploaded_by_username,
+        uploaded_by_role=uploaded_by_role,
     )
     store.add_document(doc)
     return doc

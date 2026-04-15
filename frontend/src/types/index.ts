@@ -1,5 +1,7 @@
 export type Classification = "PUBLIC" | "INTERNAL" | "CONFIDENTIAL" | "RESTRICTED";
 
+export type TogglableRole = "guest" | "employee" | "manager";
+
 export interface DocumentMeta {
   doc_id: string;
   filename: string;
@@ -10,6 +12,9 @@ export interface DocumentMeta {
   doc_level: number; // 1..4
   classification: Classification;
   created_at: string;
+  uploaded_by_username: string;
+  uploaded_by_role: string;
+  disabled_for_roles: TogglableRole[];
 }
 
 export interface Source {

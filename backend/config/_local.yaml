@@ -1,0 +1,2 @@
+# Local overrides. Copy to local.yaml for machine-specific settings.
+# Loaded after default.yaml when present.

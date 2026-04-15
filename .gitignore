@@ -1,0 +1,78 @@
+# ─── OS / editor ────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ─── Secrets — NEVER commit ─────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*.json
+
+# ─── Python ─────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Virtual envs (all common names)
+.venv/
+venv/
+env/
+ENV/
+
+# ─── Node / frontend ────────────────────────────────────────────────────────
+node_modules/
+dist/
+build/
+.vite/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# ─── Runtime / data — user-specific, shouldn't be in source ─────────────────
+backend/data/raw/
+backend/data/processed/
+backend/data/embeddings/
+backend/data/bm25/
+backend/data/uploads/
+backend/data/registry.sqlite
+backend/data/*.sqlite
+backend/data/*.sqlite3
+
+homework-basic/data/
+homework-basic/.venv/
+
+# Qdrant local volumes
+qdrant_storage/
+**/qdrant_storage/
+
+# ─── Misc ───────────────────────────────────────────────────────────────────
+*.pkl
+*.bin
+.cache/
+tmp/
+*.tmp
+coverage/
+
+# Zip artifacts the user keeps alongside but shouldn't be committed
+*.zip
+
+# Class materials (homework briefs, hands-on lab notebook, standalone PDFs
+# sitting in the repo root) — not source code
+S2_Homework.docx
+S2_Homework_hands*on.docx
+S2_RAG_Hands_On_Lab.ipynb
+/TechNova_HR_Policy_Handbook.pdf

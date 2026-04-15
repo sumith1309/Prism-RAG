@@ -1,0 +1,14 @@
+[project]
+name = "universal-document-rag"
+version = "1.0.0"
+description = "Upload any document and chat with it — hybrid RAG with reranking, HyDE, and streaming answers."
+requires-python = ">=3.10"
+readme = "../README.md"
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

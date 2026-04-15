@@ -1,0 +1,88 @@
+@import url("https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  html {
+    color-scheme: light;
+  }
+  body {
+    @apply bg-bg text-fg font-sans antialiased;
+    font-feature-settings: "cv11", "ss01", "ss03";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  ::selection {
+    @apply bg-accent/25 text-fg;
+  }
+  button {
+    @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg;
+  }
+  input,
+  textarea,
+  select {
+    @apply focus:outline-none focus-visible:ring-1 focus-visible:ring-accent/60;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-surface border border-border rounded-lg shadow-subtle;
+  }
+  .card-hover {
+    @apply hover:border-border-strong hover:shadow-card transition-all duration-150;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium
+           transition-all duration-150 select-none;
+  }
+  .btn-primary {
+    @apply btn bg-accent text-white hover:bg-accent-hover active:scale-[0.98]
+           shadow-accent-glow hover:shadow-[0_10px_28px_-6px_rgba(91,71,255,0.32)]
+           disabled:opacity-50 disabled:pointer-events-none disabled:shadow-none;
+  }
+  .btn-secondary {
+    @apply btn bg-surface border border-border text-fg hover:bg-surface-hover hover:border-border-strong
+           disabled:opacity-50 disabled:pointer-events-none;
+  }
+  .btn-ghost {
+    @apply btn text-fg-muted hover:text-fg hover:bg-surface-hover;
+  }
+  .input {
+    @apply w-full bg-white border border-border rounded-md px-3 py-2 text-sm text-fg
+           placeholder:text-fg-subtle transition-all duration-150
+           focus:border-accent/60 focus:ring-2 focus:ring-accent/15 outline-none;
+  }
+  .pill {
+    @apply inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium
+           uppercase tracking-wider;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: rgba(60, 60, 70, 0.12);
+    border-radius: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: rgba(60, 60, 70, 0.22);
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  /* Subtle animated mesh behind the app — premium, not childish */
+  .app-canvas {
+    background-color: #fafafa;
+    background-image:
+      radial-gradient(60% 50% at 85% 0%, rgba(91, 71, 255, 0.055), transparent 70%),
+      radial-gradient(50% 50% at 10% 100%, rgba(91, 71, 255, 0.04), transparent 70%);
+  }
+}

@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+data/vector_store/*
+!data/vector_store/.gitkeep
+data/embeddings/*
+!data/embeddings/.gitkeep
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+data/registry.sqlite
+logs/*
+!logs/.gitkeep
+.pytest_cache/
+.ruff_cache/

@@ -1,0 +1,47 @@
+# Default configuration for the Universal Document RAG backend.
+# Environment variables (.env) always override these values.
+
+models:
+  # Many of HF's free serverless models were deprecated (HTTP 410). This default
+  # uses a model still routable via HF "auto" Inference Providers at the time of writing.
+  # If it stops working, set LLM_BASE_URL in .env to use an OpenAI-compatible endpoint
+  # (Groq is free and fast: https://api.groq.com/openai/v1).
+  chat: meta-llama/Llama-3.1-8B-Instruct
+  embedding: sentence-transformers/all-MiniLM-L6-v2
+  reranker: BAAI/bge-reranker-base
+
+paths:
+  vector_store: ./data/vector_store
+  raw: ./data/raw
+  processed: ./data/processed
+  embeddings: ./data/embeddings
+  registry_db: ./data/registry.sqlite
+  sample_pdf: ./data/raw/TechNova_HR_Policy_Handbook.pdf
+  logs: ./logs
+
+qdrant:
+  url: http://localhost:6333
+  collection: documents
+  embed_dim: 384
+
+auth:
+  secret: change-me-in-env
+  algorithm: HS256
+  token_ttl_minutes: 720
+
+ingestion:
+  chunk_size: 500
+  chunk_overlap: 100
+  max_upload_mb: 25
+
+retrieval:
+  dense_top_k: 10
+  bm25_top_k: 10
+  rrf_k: 60
+  rerank_top_n: 5
+  rerank_candidates: 20
+  min_rerank_score: -5.0
+
+generation:
+  max_new_tokens: 600
+  temperature: 0.2

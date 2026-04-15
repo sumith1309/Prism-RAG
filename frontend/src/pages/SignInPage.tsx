@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, ChevronRight, Loader2, Lock, Shield, User as UserIcon } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronRight, Cpu, Loader2, Lock, Shield, User as UserIcon } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -121,6 +121,15 @@ export function SignInPage() {
               What you can read is enforced by your clearance — not by the model. No prompt
               injection can reveal documents above your level.
             </p>
+
+            <Link
+              to="/pipeline"
+              className="mt-4 inline-flex items-center gap-2 px-3.5 py-2 rounded-md border border-light-accent/40 bg-light-accent/5 text-light-accent text-[12.5px] font-semibold hover:bg-light-accent/10 transition-colors group"
+            >
+              <Cpu className="w-3.5 h-3.5" strokeWidth={2.25} />
+              Try the Pipeline Lab — no sign-in needed
+              <ArrowRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" strokeWidth={2.5} />
+            </Link>
 
             <form
               onSubmit={(e) => {

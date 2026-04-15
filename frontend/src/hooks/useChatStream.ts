@@ -195,7 +195,9 @@ export function useChatStream() {
               const stripSources =
                 finalMode === "unknown" ||
                 finalMode === "refused" ||
-                finalMode === "general";
+                finalMode === "general" ||
+                finalMode === "meta" ||
+                finalMode === "system";
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantMsg.id

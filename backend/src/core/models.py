@@ -62,7 +62,12 @@ class ChatTurn(SQLModel, table=True):
     content: str
     sources_json: str = ""  # JSON-serialized list[Source]
     refused: bool = False
-    answer_mode: str = "grounded"  # grounded | refused | general | unknown
+    answer_mode: str = "grounded"  # grounded | refused | general | unknown | social | meta
+    # LLM-judge faithfulness for assistant turns. -1 means "not scored"
+    # (faithfulness disabled, non-grounded mode, or scoring timed out).
+    # Persisted on the turn so the graph viz's Faithfulness Rings + replay
+    # can colour each cited chunk without joining against the audit log.
+    faithfulness: float = -1.0
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
 
@@ -187,6 +192,7 @@ def append_turn(
     sources_json: str = "",
     refused: bool = False,
     answer_mode: str = "grounded",
+    faithfulness: float = -1.0,
 ) -> ChatTurn:
     turn = ChatTurn(
         thread_id=thread_id,
@@ -195,6 +201,7 @@ def append_turn(
         sources_json=sources_json,
         refused=refused,
         answer_mode=answer_mode,
+        faithfulness=faithfulness,
     )
     with Session(_get_engine()) as s:
         s.add(turn)

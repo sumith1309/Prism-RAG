@@ -96,8 +96,14 @@ export function MessageBubble({
     );
   }
 
-  // Grounded or general — both stream tokens through the bubble
+  // Grounded / general / meta / system all stream tokens through the
+  // bubble. Meta answers "what did I ask earlier" from chat history;
+  // general answers off-corpus questions from world knowledge; system
+  // answers "show recent queries by users" from audit data. None have
+  // doc sources.
   const isGeneral = message.answerMode === "general";
+  const isMeta = message.answerMode === "meta";
+  const isSystem = message.answerMode === "system";
 
   return (
     <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
@@ -121,6 +127,26 @@ export function MessageBubble({
                 <span className="font-semibold text-accent">General knowledge mode.</span>{" "}
                 This question wasn't in your document corpus — answered from the model's
                 general knowledge, without source citations.
+              </div>
+            </div>
+          )}
+          {isMeta && (
+            <div className="rounded-md border border-accent/25 bg-accent-soft px-3 py-2 flex items-start gap-2">
+              <Info className="w-3.5 h-3.5 text-accent mt-0.5 shrink-0" strokeWidth={1.75} />
+              <div className="text-[12px] text-fg leading-relaxed">
+                <span className="font-semibold text-accent">Conversation memory mode.</span>{" "}
+                This is a question about our chat itself, so I'm answering from
+                this thread's history — no document retrieval.
+              </div>
+            </div>
+          )}
+          {isSystem && (
+            <div className="rounded-md border border-accent/25 bg-accent-soft px-3 py-2 flex items-start gap-2">
+              <Info className="w-3.5 h-3.5 text-accent mt-0.5 shrink-0" strokeWidth={1.75} />
+              <div className="text-[12px] text-fg leading-relaxed">
+                <span className="font-semibold text-accent">System intelligence mode.</span>{" "}
+                Answering from the audit log — recent queries, user activity,
+                and platform usage. RBAC-scoped to what your role can see.
               </div>
             </div>
           )}

@@ -29,7 +29,9 @@ from src.core.prompts import (
     CORRECTIVE_PROMPT,
     FAITHFULNESS_PROMPT,
     GENERAL_SYSTEM_PROMPT,
+    META_CONVERSATION_PROMPT,
     MULTI_QUERY_PROMPT,
+    SYSTEM_INTEL_PROMPT,
     SYSTEM_PROMPT,
     TITLE_PROMPT,
     build_context_block,
@@ -91,6 +93,113 @@ _SOCIAL_PREFIXES = (
     "good morning", "good afternoon", "good evening", "good night",
     "thanks ", "thank you", "thx ",
 )
+
+
+# Meta-conversation phrases — the user is asking about THIS chat itself
+# ("what did I ask before?", "summarize our conversation", "what was your
+# last answer") instead of the document corpus. Must be routed straight to
+# generation with chat history, not through retrieval, or it collapses to
+# "no confident answer" when the retriever finds nothing relevant.
+_META_CONV_PHRASES = (
+    "first question", "last question", "previous question", "earlier question",
+    "my first", "my last", "my previous", "my earlier",
+    "first answer", "last answer", "previous answer", "earlier answer",
+    "your first", "your last", "your previous", "your earlier",
+    "what did i ask", "what i asked", "what did you say", "what you said",
+    "what did you answer", "what you answered",
+    "what have we", "what did we", "have we discussed", "did we discuss",
+    "summarize our", "summarize this chat", "summarize the chat",
+    "summarize our conversation", "recap this chat", "recap our",
+    "our conversation", "this conversation", "this chat",
+    "what is this conversation", "what was the last",
+    "what was i asking", "what was i talking",
+    "go back to", "we were talking about", "what were we talking",
+)
+
+
+# System-intelligence phrases — the user is asking about platform USAGE
+# (recent queries, top users, what people have asked), not about the
+# document corpus. Routed straight to the audit log.
+_SYSTEM_INTEL_PHRASES = (
+    "recent queries", "recent activity", "recent question",
+    "user queries", "queries by users", "queries asked by",
+    "what users have asked", "what users asked", "what people asked",
+    "what have users", "what did users", "show me activity",
+    "user activity", "audit log", "audit data",
+    "popular queries", "top queries", "common queries",
+    "who has asked", "who asked", "who is using",
+    "platform usage", "usage stats", "system stats", "system metrics",
+    "how many queries", "total queries", "query count",
+    "most active user", "top users", "active users",
+    "query history", "query log",
+    "refused queries", "refused requests",
+    "average faithfulness", "cache hit",
+    # Personal-scope variants — caller asks about THEIR OWN activity.
+    # These also route to system-intel and the audit query is scoped by
+    # user_id when the caller isn't an exec.
+    "queries i have asked", "queries i asked",
+    "queries have i asked", "queries i've asked",
+    "questions i have asked", "questions i asked",
+    "questions have i asked", "questions i've asked",
+    "what queries have", "what questions have",
+    "what have i asked", "what i have asked", "what i asked",
+    "have i asked", "did i ask",
+    "my recent queries", "my recent questions",
+    "my queries", "my questions",
+    "my activity", "my history",
+    "show me my", "list my",
+)
+
+
+def _is_system_intelligence(query: str) -> bool:
+    """True if the query asks about platform usage / audit data, not the
+    document corpus. Triggered by phrases like 'recent queries asked by
+    users', 'top queries', 'who is asking', 'usage stats'."""
+    t = query.strip().lower().rstrip("?.! ")
+    if not t:
+        return False
+    return any(p in t for p in _SYSTEM_INTEL_PHRASES)
+
+
+def _format_audit_for_llm(rows, scope: str) -> str:
+    """Compact, deterministic rendering of audit rows for the LLM context.
+    Each row becomes one line of structured fields the model can quote
+    accurately. Most-recent first, hard-capped so the prompt stays bounded.
+    """
+    if not rows:
+        return "(no audit rows available for this scope)"
+    lines = []
+    for r in rows[:30]:
+        ts = r.ts.strftime("%Y-%m-%d %H:%M") if hasattr(r.ts, "strftime") else str(r.ts)
+        mode = r.answer_mode or "grounded"
+        latency = r.latency_total_ms or 0
+        faith = (
+            f"faith={r.faithfulness:.2f}"
+            if r.faithfulness is not None and r.faithfulness >= 0
+            else "faith=—"
+        )
+        cached = "cached" if getattr(r, "cached", False) else "live"
+        username = r.username if scope == "all-users" else "you"
+        q = (r.query or "").replace("\n", " ").strip()[:160]
+        lines.append(
+            f"- [{ts}] {username} (L{r.user_level}) → {mode} · {latency}ms · {faith} · {cached}"
+            f"\n    query: {q}"
+        )
+    return "\n".join(lines)
+
+
+def _is_meta_conversation(query: str, history) -> bool:
+    """True if the query asks about THIS chat (its own history) rather
+    than the document corpus. Requires history to exist — asking
+    'what was my first question' in turn 1 is just a regular question.
+    """
+    if not history:
+        return False
+    t = query.strip().lower().rstrip("?.! ")
+    if not t:
+        return False
+    # Short queries that contain a meta cue are very likely meta-questions.
+    return any(p in t for p in _META_CONV_PHRASES)
 
 
 def _is_social(query: str) -> bool:
@@ -442,6 +551,40 @@ async def _stream_general(query, history):
         yield delta
 
 
+async def _stream_system_intel(query, user, audit_rows, history):
+    """Stream an answer to a system-intelligence question using audit data
+    as the context. Caller's role determines the scope: exec sees all
+    users; everyone else sees only their own activity.
+    """
+    scope = "all-users" if user.role == "executive" else f"only your own ({user.username})"
+    audit_text = _format_audit_for_llm(audit_rows, scope=scope)
+    system_prompt = SYSTEM_INTEL_PROMPT.format(
+        scope=scope,
+        n_rows=len(audit_rows),
+        audit=audit_text,
+    )
+    messages = [{"role": "system", "content": system_prompt}]
+    for m in _budget_history(history, max_chars=3000, max_turns=10):
+        messages.append({"role": m.role, "content": m.content})
+    messages.append({"role": "user", "content": query})
+    async for delta in _stream_chat(messages, max_tokens=500, temperature=0.2):
+        yield delta
+
+
+async def _stream_meta(query, history):
+    """Stream an answer to a meta-conversation question using only history.
+    Never touches retrieval — we send the full (budget-trimmed) chat log
+    and ask the LLM to answer from it. Uses a generous history budget
+    because a meta-question like 'what was my first question' literally
+    needs access to the earliest turns."""
+    messages = [{"role": "system", "content": META_CONVERSATION_PROMPT}]
+    for m in _budget_history(history, max_chars=8000, max_turns=40):
+        messages.append({"role": m.role, "content": m.content})
+    messages.append({"role": "user", "content": query})
+    async for delta in _stream_chat(messages, max_tokens=500, temperature=0.3):
+        yield delta
+
+
 @router.post("/chat")
 async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
     async def event_generator():
@@ -546,6 +689,173 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                 )
             except Exception:
                 pass
+            return
+
+        # ── 1bb. System-intelligence short-circuit ────────────────────────
+        # "Recent queries by users" / "top users" / "audit" — answer from
+        # audit data, not the doc corpus. Exec sees all users; everyone
+        # else sees only their own activity (RBAC at the data layer).
+        if _is_system_intelligence(req.query):
+            from sqlmodel import Session, desc, select as _select
+            from src.core.store import _get_engine as _store_engine
+
+            with Session(_store_engine()) as s:
+                q = _select(models.AuditLog).order_by(desc(models.AuditLog.ts))
+                if user.role != "executive":
+                    q = q.where(models.AuditLog.user_id == user.id)
+                audit_rows = list(s.exec(q.limit(30)))
+
+            yield {
+                "event": "general_mode",
+                "data": json.dumps(
+                    {"message": "Answering from audit data (system intelligence)."}
+                ),
+            }
+            t_gen = time.perf_counter()
+            full_answer = ""
+            async for delta in _stream_system_intel(req.query, user, audit_rows, req.history):
+                full_answer += delta
+                yield {"event": "token", "data": json.dumps({"delta": delta})}
+            generate_ms = int((time.perf_counter() - t_gen) * 1000)
+            answer_mode = "system"
+            tokens_prompt = _approx_tokens(SYSTEM_INTEL_PROMPT + req.query)
+            tokens_completion = _approx_tokens(full_answer)
+            try:
+                models.append_turn(thread_id=thread_id, role="user", content=req.query)
+                models.append_turn(
+                    thread_id=thread_id,
+                    role="assistant",
+                    content=full_answer or "",
+                    sources_json="",
+                    refused=False,
+                    answer_mode="system",
+                )
+                models.touch_thread(thread_id)
+                models.write_audit(
+                    models.AuditLog(
+                        user_id=user.id,
+                        username=user.username,
+                        user_level=user.level,
+                        query=req.query,
+                        refused=False,
+                        returned_chunks=0,
+                        allowed_doc_ids="",
+                        answer_mode="system",
+                        latency_retrieve_ms=0,
+                        latency_rerank_ms=0,
+                        latency_generate_ms=generate_ms,
+                        latency_total_ms=int((time.perf_counter() - t_total) * 1000),
+                        tokens_prompt=tokens_prompt,
+                        tokens_completion=tokens_completion,
+                        cached=False,
+                        corrective_retries=0,
+                        faithfulness=-1.0,
+                    )
+                )
+            except Exception:
+                pass
+            yield {
+                "event": "done",
+                "data": json.dumps(
+                    {
+                        "ok": True,
+                        "answer_mode": "system",
+                        "thread_id": thread_id,
+                        "cached": False,
+                        "latency_ms": {
+                            "retrieve": 0,
+                            "rerank": 0,
+                            "generate": generate_ms,
+                            "total": int((time.perf_counter() - t_total) * 1000),
+                        },
+                        "tokens": {"prompt": tokens_prompt, "completion": tokens_completion},
+                        "corrective_retries": 0,
+                        "faithfulness": -1.0,
+                    }
+                ),
+            }
+            return
+
+        # ── 1c. Meta-conversation short-circuit ───────────────────────────
+        # "What was my first question?" / "summarize our chat" are about
+        # THIS conversation, not the corpus. Route straight to generation
+        # using the chat history — don't waste retrieval on the doc store
+        # (it finds nothing relevant and the flow collapses to "no
+        # confident answer").
+        if _is_meta_conversation(req.query, req.history):
+            yield {
+                "event": "general_mode",
+                "data": json.dumps(
+                    {"message": "Answering from this chat's history."}
+                ),
+            }
+            t_gen = time.perf_counter()
+            full_answer = ""
+            async for delta in _stream_meta(req.query, req.history):
+                full_answer += delta
+                yield {"event": "token", "data": json.dumps({"delta": delta})}
+            generate_ms = int((time.perf_counter() - t_gen) * 1000)
+            answer_mode = "meta"
+            tokens_prompt = _approx_tokens(
+                META_CONVERSATION_PROMPT + req.query + " ".join(
+                    (m.content or "") for m in (req.history or [])
+                )
+            )
+            tokens_completion = _approx_tokens(full_answer)
+            try:
+                models.append_turn(thread_id=thread_id, role="user", content=req.query)
+                models.append_turn(
+                    thread_id=thread_id,
+                    role="assistant",
+                    content=full_answer or "",
+                    sources_json="",
+                    refused=False,
+                    answer_mode="meta",
+                )
+                models.touch_thread(thread_id)
+                models.write_audit(
+                    models.AuditLog(
+                        user_id=user.id,
+                        username=user.username,
+                        user_level=user.level,
+                        query=req.query,
+                        refused=False,
+                        returned_chunks=0,
+                        allowed_doc_ids="",
+                        answer_mode="meta",
+                        latency_retrieve_ms=0,
+                        latency_rerank_ms=0,
+                        latency_generate_ms=generate_ms,
+                        latency_total_ms=int((time.perf_counter() - t_total) * 1000),
+                        tokens_prompt=tokens_prompt,
+                        tokens_completion=tokens_completion,
+                        cached=False,
+                        corrective_retries=0,
+                        faithfulness=-1.0,
+                    )
+                )
+            except Exception:
+                pass
+            yield {
+                "event": "done",
+                "data": json.dumps(
+                    {
+                        "ok": True,
+                        "answer_mode": "meta",
+                        "thread_id": thread_id,
+                        "cached": False,
+                        "latency_ms": {
+                            "retrieve": 0,
+                            "rerank": 0,
+                            "generate": generate_ms,
+                            "total": int((time.perf_counter() - t_total) * 1000),
+                        },
+                        "tokens": {"prompt": tokens_prompt, "completion": tokens_completion},
+                        "corrective_retries": 0,
+                        "faithfulness": -1.0,
+                    }
+                ),
+            }
             return
 
         # ── 2. Cache lookup ──────────────────────────────────────────────
@@ -696,6 +1006,7 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                             "text": c.text,
                             "rrf_score": c.rrf_score,
                             "rerank_score": c.rerank_score,
+                            "chunk_index": c.chunk_index,
                         }
                         for c in chunks
                     ]
@@ -802,6 +1113,7 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                     sources_json=sources_json,
                     refused=(answer_mode in {"refused", "unknown"}),
                     answer_mode=answer_mode,
+                    faithfulness=faithfulness,
                 )
                 models.touch_thread(thread_id)
                 models.write_audit(

@@ -25,13 +25,20 @@ export function useDocuments() {
   }, [refresh]);
 
   const upload = useCallback(
-    async (files: File[], classification?: number) => {
+    async (
+      files: File[],
+      options?: { classification?: number; disabled_for_roles?: string[] }
+    ) => {
       if (!files.length) return;
       setUploading(true);
       const names = files.map((f) => f.name).join(", ");
       const toastId = toast.loading(`Uploading & indexing: ${names}`);
       try {
-        const results = await uploadDocuments(files, classification);
+        const results = await uploadDocuments(
+          files,
+          options?.classification,
+          options?.disabled_for_roles
+        );
         const okCount = results.filter((r) => r.status === "ok").length;
         const failures = results.filter((r) => r.status !== "ok");
         if (okCount > 0) toast.success(`Indexed ${okCount} document${okCount > 1 ? "s" : ""}`, { id: toastId });

@@ -32,11 +32,12 @@ _engine = None
 
 def _migrate_columns(engine) -> None:
     """SQLite can't add columns via SQLModel.metadata.create_all on an
-    existing table, so we manually ALTER TABLE for the new Document fields.
-    Safe to run repeatedly — skips columns that already exist."""
+    existing table, so we manually ALTER TABLE for new fields. Safe to
+    run repeatedly — skips columns that already exist."""
     with engine.begin() as conn:
         from sqlalchemy import text
 
+        # Document table — uploader identity + per-role visibility kill-switch.
         cols = {
             row[1]
             for row in conn.execute(text("PRAGMA table_info(document)")).fetchall()
@@ -48,6 +49,17 @@ def _migrate_columns(engine) -> None:
         ):
             if name not in cols:
                 conn.execute(text(f"ALTER TABLE document ADD COLUMN {name} {ddl}"))
+
+        # ChatTurn table — per-turn faithfulness for graph replay + rings.
+        cols = {
+            row[1]
+            for row in conn.execute(text("PRAGMA table_info(chatturn)")).fetchall()
+        }
+        for name, ddl in (
+            ("faithfulness", "REAL NOT NULL DEFAULT -1.0"),
+        ):
+            if name not in cols:
+                conn.execute(text(f"ALTER TABLE chatturn ADD COLUMN {name} {ddl}"))
 
 
 def _get_engine():

@@ -2,6 +2,9 @@ import { fetchEventSource } from "@microsoft/fetch-event-source";
 import type {
   AuditResponse,
   DocumentMeta,
+  GraphHeatResponse,
+  GraphResponse,
+  GraphTraceResponse,
   LoginResponse,
   Source,
   ThreadDetail,
@@ -57,11 +60,15 @@ export async function listDocuments(): Promise<DocumentMeta[]> {
 
 export async function uploadDocuments(
   files: File[],
-  classification?: number
+  classification?: number,
+  disabledForRoles?: string[]
 ): Promise<UploadResponse[]> {
   const fd = new FormData();
   files.forEach((f) => fd.append("files", f));
   if (classification) fd.append("classification", String(classification));
+  if (disabledForRoles && disabledForRoles.length > 0) {
+    fd.append("disabled_for_roles", disabledForRoles.join(","));
+  }
   const res = await authFetch(`${API_BASE}/api/documents`, { method: "POST", body: fd });
   if (!res.ok) {
     let detail = "";
@@ -82,12 +89,12 @@ export async function deleteDocument(docId: string): Promise<void> {
 
 export async function updateDocumentVisibility(
   docId: string,
-  disabledForRoles: string[]
+  patch: { disabled_for_roles?: string[]; doc_level?: number }
 ): Promise<DocumentMeta> {
   const res = await authFetch(`${API_BASE}/api/documents/${docId}/visibility`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ disabled_for_roles: disabledForRoles }),
+    body: JSON.stringify(patch),
   });
   if (!res.ok) {
     if (res.status === 403) throw new Error("Executive access required");
@@ -190,6 +197,38 @@ export async function playgroundRetrieve(
 
 export async function fetchHealth(): Promise<any> {
   const res = await fetch(`${API_BASE}/api/health`);
+  return res.json();
+}
+
+// ── Knowledge graph ─────────────────────────────────────────────────────────
+
+export async function fetchGraph(): Promise<GraphResponse> {
+  const res = await authFetch(`${API_BASE}/api/graph`);
+  if (!res.ok) throw new Error(`graph failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchGraphHeat(): Promise<GraphHeatResponse> {
+  const res = await authFetch(`${API_BASE}/api/graph/heat`);
+  if (!res.ok) throw new Error(`graph heat failed: ${res.status}`);
+  return res.json();
+}
+
+export async function traceGraphQuery(
+  query: string,
+  roleOverride?: string,
+  topK = 5
+): Promise<GraphTraceResponse> {
+  const res = await authFetch(`${API_BASE}/api/graph/trace`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      query,
+      role_override: roleOverride || null,
+      top_k: topK,
+    }),
+  });
+  if (!res.ok) throw new Error(`graph trace failed: ${res.status}`);
   return res.json();
 }
 

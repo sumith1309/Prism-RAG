@@ -130,12 +130,13 @@ function Hero() {
         <HangingCTA to="/signin">
           Start for free <ArrowRight className="w-4 h-4" />
         </HangingCTA>
-        <a
-          href="#playground"
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-md border border-light-border bg-light-surface text-light-fg text-[14px] font-medium hover:border-light-borderStrong transition-colors shadow-light-sm"
+        <Link
+          to="/pipeline"
+          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-md border border-light-accent/40 bg-light-accent/5 text-light-accent text-[14px] font-semibold hover:bg-light-accent/10 transition-colors shadow-light-sm"
         >
-          Try the pipeline live
-        </a>
+          Try the Pipeline Lab
+          <ArrowRight className="w-4 h-4" />
+        </Link>
         <a
           href="#cli"
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-md border border-light-border bg-light-surface text-light-fgMuted text-[14px] font-medium hover:text-light-fg hover:border-light-borderStrong transition-colors shadow-light-sm"

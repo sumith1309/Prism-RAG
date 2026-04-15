@@ -1,15 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
+import ReactECharts from "echarts-for-react";
 import {
   Activity,
   AlertTriangle,
   BarChart3,
+  CalendarClock,
   CheckCircle2,
   Clock,
   Coins,
   Gauge,
+  GitBranch,
   HelpCircle,
   Loader2,
+  PieChart,
   ShieldAlert,
   Sparkles,
   TrendingUp,
@@ -106,131 +110,49 @@ export function AnalyticsPage() {
               />
             </section>
 
-            {/* Mode distribution + cache */}
+            {/* Distribution + Faithfulness gauge */}
             <section className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-3">
-              <Panel title="Answer modes" icon={<Sparkles className="w-3.5 h-3.5" />}>
-                <div className="space-y-2 mt-1">
-                  {(["grounded", "refused", "general", "unknown"] as AnswerMode[]).map((m) => {
-                    const n = stats.byMode[m] || 0;
-                    const pct = stats.total ? Math.round((n / stats.total) * 100) : 0;
-                    return (
-                      <ModeBar key={m} mode={m} count={n} pct={pct} />
-                    );
-                  })}
-                </div>
+              <Panel title="Answer-mode distribution" icon={<PieChart className="w-3.5 h-3.5" />}>
+                <ModeDonut byMode={stats.byMode} total={stats.total} />
               </Panel>
 
-              <Panel title="Cache efficiency" icon={<Gauge className="w-3.5 h-3.5" />}>
-                <div className="flex items-center justify-center h-full py-6">
-                  <div className="text-center">
-                    <div className="text-5xl font-semibold text-accent">
-                      {stats.cacheHitRate}%
-                    </div>
-                    <div className="text-[11px] uppercase tracking-wider text-fg-subtle mt-1">
-                      Cache hit rate
-                    </div>
-                    <div className="text-[11px] text-fg-muted mt-3">
-                      {stats.cached.toLocaleString()} of {stats.total.toLocaleString()} queries
-                      served from cache.
-                    </div>
-                  </div>
-                </div>
+              <Panel title="Average faithfulness" icon={<Gauge className="w-3.5 h-3.5" />}>
+                <FaithfulnessGauge
+                  value={stats.avgFaithfulness}
+                  scoredCount={stats.scoredCount}
+                  groundedTotal={stats.byMode.grounded}
+                />
               </Panel>
             </section>
 
-            {/* Latency breakdown */}
-            <Panel title="Latency breakdown (avg)" icon={<BarChart3 className="w-3.5 h-3.5" />}>
-              <div className="grid grid-cols-[auto_1fr_auto] gap-x-3 gap-y-1.5 items-center text-[12px] mt-1">
-                <span className="text-fg-muted">Retrieve</span>
-                <div className="h-1.5 rounded-full bg-bg-subtle overflow-hidden">
-                  <div
-                    className="h-full bg-accent"
-                    style={{ width: `${Math.min(100, (stats.avgRetrieveMs / Math.max(stats.avgTotalMs, 1)) * 100)}%` }}
-                  />
-                </div>
-                <span className="font-mono text-fg text-right">{stats.avgRetrieveMs}ms</span>
-
-                <span className="text-fg-muted">Rerank</span>
-                <div className="h-1.5 rounded-full bg-bg-subtle overflow-hidden">
-                  <div
-                    className="h-full bg-accent/70"
-                    style={{ width: `${Math.min(100, (stats.avgRerankMs / Math.max(stats.avgTotalMs, 1)) * 100)}%` }}
-                  />
-                </div>
-                <span className="font-mono text-fg text-right">{stats.avgRerankMs}ms</span>
-
-                <span className="text-fg-muted">Generate</span>
-                <div className="h-1.5 rounded-full bg-bg-subtle overflow-hidden">
-                  <div
-                    className="h-full bg-clearance-internal"
-                    style={{ width: `${Math.min(100, (stats.avgGenerateMs / Math.max(stats.avgTotalMs, 1)) * 100)}%` }}
-                  />
-                </div>
-                <span className="font-mono text-fg text-right">{stats.avgGenerateMs}ms</span>
-              </div>
+            {/* Activity over time */}
+            <Panel title="Activity over time" icon={<TrendingUp className="w-3.5 h-3.5" />}>
+              <ActivityTimeline rows={rows} />
             </Panel>
 
-            {/* Per-role counts + faithfulness */}
+            {/* Sankey + Heatmap */}
             <section className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-              <Panel title="Queries by role" icon={<Users className="w-3.5 h-3.5" />}>
-                <div className="space-y-2 mt-1">
-                  {Object.entries(stats.byRole)
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([label, count]) => {
-                      const pct = stats.total ? Math.round((count / stats.total) * 100) : 0;
-                      return (
-                        <div key={label}>
-                          <div className="flex items-center justify-between text-[11.5px] mb-1">
-                            <span className="capitalize text-fg">{label}</span>
-                            <span className="font-mono text-fg-muted">
-                              {count} · {pct}%
-                            </span>
-                          </div>
-                          <div className="h-1.5 rounded-full bg-bg-subtle overflow-hidden">
-                            <div
-                              className="h-full bg-accent"
-                              style={{ width: `${pct}%` }}
-                            />
-                          </div>
-                        </div>
-                      );
-                    })}
-                </div>
+              <Panel title="Role → Answer mode" icon={<GitBranch className="w-3.5 h-3.5" />}>
+                <RoleModeSankey rows={rows} />
               </Panel>
-
-              <Panel
-                title="Avg faithfulness (grounded only)"
-                icon={<Gauge className="w-3.5 h-3.5" />}
-              >
-                <div className="flex items-center justify-center h-full py-6">
-                  <div className="text-center">
-                    <div
-                      className={cn(
-                        "text-5xl font-semibold",
-                        stats.avgFaithfulness === null
-                          ? "text-fg-subtle"
-                          : stats.avgFaithfulness >= 0.8
-                          ? "text-clearance-public"
-                          : stats.avgFaithfulness >= 0.5
-                          ? "text-clearance-confidential"
-                          : "text-clearance-restricted"
-                      )}
-                    >
-                      {stats.avgFaithfulness === null
-                        ? "—"
-                        : `${Math.round(stats.avgFaithfulness * 100)}%`}
-                    </div>
-                    <div className="text-[11px] uppercase tracking-wider text-fg-subtle mt-1">
-                      Avg grounded answer alignment
-                    </div>
-                    <div className="text-[11px] text-fg-muted mt-3">
-                      {stats.scoredCount} of {stats.byMode.grounded} grounded responses scored by
-                      LLM judge.
-                    </div>
-                  </div>
-                </div>
+              <Panel title="When are queries asked?" icon={<CalendarClock className="w-3.5 h-3.5" />}>
+                <WeekHourHeatmap rows={rows} />
               </Panel>
             </section>
+
+            {/* Latency breakdown — proper ECharts horizontal bars */}
+            <Panel title="Latency breakdown (avg ms)" icon={<BarChart3 className="w-3.5 h-3.5" />}>
+              <LatencyBreakdown
+                retrieve={stats.avgRetrieveMs}
+                rerank={stats.avgRerankMs}
+                generate={stats.avgGenerateMs}
+              />
+            </Panel>
+
+            {/* Per-user usage */}
+            <Panel title="Queries by user" icon={<Users className="w-3.5 h-3.5" />}>
+              <UserBars byRole={stats.byRole} total={stats.total} />
+            </Panel>
 
             {/* Top queries table */}
             <Panel title="Most frequent queries" icon={<TrendingUp className="w-3.5 h-3.5" />}>
@@ -318,6 +240,458 @@ function Panel({
   );
 }
 
+// ─── ECharts panels ───────────────────────────────────────────────────────
+
+const MODE_COLORS: Record<AnswerMode, string> = {
+  grounded: "#22c55e",
+  general: "#3b82f6",
+  refused: "#ef4444",
+  unknown: "#6b7280",
+  social: "#a855f7",
+  meta: "#f59e0b",
+  system: "#06b6d4",
+};
+
+function ModeDonut({
+  byMode,
+  total,
+}: {
+  byMode: Record<AnswerMode, number>;
+  total: number;
+}) {
+  const option = useMemo(() => {
+    const data = (Object.entries(byMode) as [AnswerMode, number][])
+      .filter(([, n]) => n > 0)
+      .map(([m, n]) => ({
+        name: m,
+        value: n,
+        itemStyle: { color: MODE_COLORS[m] },
+      }));
+    return {
+      tooltip: {
+        trigger: "item",
+        formatter: (p: any) =>
+          `<b style="text-transform:capitalize">${p.name}</b><br/>` +
+          `<span style="color:${p.color}">●</span> ${p.value} queries (${p.percent}%)`,
+      },
+      legend: {
+        bottom: 0,
+        textStyle: { color: "#374151", fontSize: 11 },
+        itemWidth: 10,
+        itemHeight: 10,
+      },
+      series: [
+        {
+          type: "pie",
+          radius: ["55%", "78%"],
+          center: ["50%", "44%"],
+          avoidLabelOverlap: true,
+          itemStyle: { borderColor: "#fff", borderWidth: 2 },
+          label: {
+            show: true,
+            position: "center",
+            formatter: () =>
+              `{big|${total}}\n{lbl|TOTAL QUERIES}`,
+            rich: {
+              big: { fontSize: 28, fontWeight: 700, color: "#111827" },
+              lbl: {
+                fontSize: 10,
+                color: "#6b7280",
+                lineHeight: 18,
+                letterSpacing: 1.2,
+              },
+            },
+          },
+          emphasis: {
+            scale: true,
+            scaleSize: 4,
+            label: {
+              formatter: (p: any) =>
+                `{big|${p.value}}\n{lbl|${String(p.name).toUpperCase()}}`,
+            },
+          },
+          data,
+        },
+      ],
+    };
+  }, [byMode, total]);
+  return <ReactECharts option={option} style={{ height: 240, width: "100%" }} />;
+}
+
+function FaithfulnessGauge({
+  value,
+  scoredCount,
+  groundedTotal,
+}: {
+  value: number | null;
+  scoredCount: number;
+  groundedTotal: number;
+}) {
+  const v = value ?? 0;
+  const option = useMemo(
+    () => ({
+      series: [
+        {
+          type: "gauge",
+          min: 0,
+          max: 1,
+          startAngle: 200,
+          endAngle: -20,
+          radius: "92%",
+          progress: { show: true, width: 14, roundCap: true },
+          axisLine: {
+            lineStyle: {
+              width: 14,
+              color: [
+                [0.5, "#ef4444"],
+                [0.8, "#f59e0b"],
+                [1, "#22c55e"],
+              ],
+            },
+          },
+          axisTick: { show: false },
+          splitLine: { show: false },
+          axisLabel: { show: false },
+          pointer: { show: false },
+          anchor: { show: false },
+          itemStyle: { color: "#7c6cff" },
+          detail: {
+            valueAnimation: true,
+            formatter: (val: number) =>
+              value === null ? "—" : `${Math.round(val * 100)}%`,
+            fontSize: 26,
+            fontWeight: 700,
+            color: "#111827",
+            offsetCenter: [0, "20%"],
+          },
+          title: {
+            show: true,
+            offsetCenter: [0, "65%"],
+            color: "#6b7280",
+            fontSize: 11,
+          },
+          data: [{ value: v, name: "GROUNDED ALIGNMENT" }],
+        },
+      ],
+    }),
+    [v, value]
+  );
+  return (
+    <div>
+      <div style={{ height: 200 }}>
+        <ReactECharts option={option} style={{ height: "100%", width: "100%" }} />
+      </div>
+      <div className="text-[11px] text-fg-muted text-center -mt-2">
+        {scoredCount} of {groundedTotal} grounded responses scored by LLM judge.
+      </div>
+    </div>
+  );
+}
+
+function ActivityTimeline({ rows }: { rows: AuditRow[] }) {
+  const option = useMemo(() => {
+    if (!rows.length) return null;
+    // Bucket per-hour, last 48h.
+    const now = Date.now();
+    const start = now - 48 * 3600_000;
+    const bucketKeys: number[] = [];
+    for (let t = Math.floor(start / 3600_000) * 3600_000; t <= now; t += 3600_000) {
+      bucketKeys.push(t);
+    }
+    const modes: AnswerMode[] = ["grounded", "general", "meta", "social", "refused", "unknown"];
+    const series: Record<AnswerMode, number[]> = Object.fromEntries(
+      modes.map((m) => [m, bucketKeys.map(() => 0)])
+    ) as any;
+    for (const r of rows) {
+      const t = new Date(r.ts).getTime();
+      if (t < start) continue;
+      const idx = Math.floor((t - bucketKeys[0]) / 3600_000);
+      if (idx < 0 || idx >= bucketKeys.length) continue;
+      const m = (r.answer_mode || "grounded") as AnswerMode;
+      if (series[m]) series[m][idx]++;
+    }
+    return {
+      tooltip: {
+        trigger: "axis",
+        axisPointer: { type: "line" },
+      },
+      legend: {
+        top: 0,
+        textStyle: { color: "#374151", fontSize: 11 },
+        itemWidth: 10,
+        itemHeight: 10,
+      },
+      grid: { left: 40, right: 16, top: 30, bottom: 30 },
+      xAxis: {
+        type: "category",
+        data: bucketKeys.map((t) => {
+          const d = new Date(t);
+          return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:00`;
+        }),
+        axisLabel: {
+          color: "#6b7280",
+          fontSize: 10,
+          interval: Math.max(0, Math.floor(bucketKeys.length / 8) - 1),
+        },
+        axisTick: { show: false },
+      },
+      yAxis: {
+        type: "value",
+        axisLabel: { color: "#6b7280", fontSize: 10 },
+        splitLine: { lineStyle: { color: "#eef0f5" } },
+      },
+      series: modes.map((m) => ({
+        name: m,
+        type: "line",
+        stack: "total",
+        smooth: true,
+        showSymbol: false,
+        areaStyle: { opacity: 0.85 },
+        lineStyle: { width: 0 },
+        itemStyle: { color: MODE_COLORS[m] },
+        emphasis: { focus: "series" },
+        data: series[m],
+      })),
+    };
+  }, [rows]);
+  if (!option) return <EmptyChart />;
+  return <ReactECharts option={option} style={{ height: 260, width: "100%" }} />;
+}
+
+function RoleModeSankey({ rows }: { rows: AuditRow[] }) {
+  const option = useMemo(() => {
+    if (!rows.length) return null;
+    type Edge = { source: string; target: string; value: number };
+    const counts = new Map<string, number>();
+    for (const r of rows) {
+      const role = r.username || "anon";
+      const mode = r.answer_mode || "grounded";
+      const k = `${role}|${mode}`;
+      counts.set(k, (counts.get(k) || 0) + 1);
+    }
+    const roles = Array.from(new Set(rows.map((r) => r.username || "anon"))).sort();
+    const modes = Array.from(new Set(rows.map((r) => r.answer_mode || "grounded"))).sort();
+    const links: Edge[] = Array.from(counts.entries()).map(([k, v]) => {
+      const [s, t] = k.split("|");
+      return { source: s, target: t, value: v };
+    });
+    return {
+      tooltip: { trigger: "item" },
+      series: [
+        {
+          type: "sankey",
+          left: 8,
+          right: 110,
+          top: 12,
+          bottom: 12,
+          data: [
+            ...roles.map((r) => ({ name: r, itemStyle: { color: "#7c6cff" } })),
+            ...modes.map((m) => ({
+              name: m,
+              itemStyle: { color: MODE_COLORS[m as AnswerMode] || "#9ca3af" },
+            })),
+          ],
+          links,
+          label: {
+            color: "#374151",
+            fontSize: 11,
+            fontWeight: 500,
+          },
+          lineStyle: { color: "gradient", curveness: 0.55 },
+          emphasis: { focus: "adjacency" },
+          nodeAlign: "left",
+        },
+      ],
+    };
+  }, [rows]);
+  if (!option) return <EmptyChart />;
+  return <ReactECharts option={option} style={{ height: 280, width: "100%" }} />;
+}
+
+function WeekHourHeatmap({ rows }: { rows: AuditRow[] }) {
+  const option = useMemo(() => {
+    if (!rows.length) return null;
+    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const hours = Array.from({ length: 24 }, (_, h) => `${h}h`);
+    const grid: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0));
+    for (const r of rows) {
+      const d = new Date(r.ts);
+      grid[d.getDay()][d.getHours()]++;
+    }
+    const data: [number, number, number][] = [];
+    let max = 0;
+    for (let d = 0; d < 7; d++) {
+      for (let h = 0; h < 24; h++) {
+        data.push([h, d, grid[d][h]]);
+        if (grid[d][h] > max) max = grid[d][h];
+      }
+    }
+    return {
+      tooltip: {
+        position: "top",
+        formatter: (p: any) =>
+          `<b>${days[p.value[1]]} ${p.value[0]}:00</b><br/>${p.value[2]} queries`,
+      },
+      grid: { top: 20, left: 50, right: 20, bottom: 30 },
+      xAxis: {
+        type: "category",
+        data: hours,
+        axisLabel: { color: "#6b7280", fontSize: 10 },
+        splitArea: { show: true },
+        axisTick: { show: false },
+      },
+      yAxis: {
+        type: "category",
+        data: days,
+        axisLabel: { color: "#374151", fontSize: 11, fontWeight: 500 },
+        axisTick: { show: false },
+      },
+      visualMap: {
+        min: 0,
+        max: Math.max(1, max),
+        calculable: false,
+        orient: "horizontal",
+        left: "center",
+        bottom: 0,
+        textStyle: { color: "#6b7280", fontSize: 10 },
+        inRange: { color: ["#f4f6fb", "#c3c9ee", "#7c6cff", "#352d8c"] },
+        itemHeight: 80,
+      },
+      series: [
+        {
+          type: "heatmap",
+          data,
+          label: { show: false },
+          emphasis: {
+            itemStyle: { shadowBlur: 8, shadowColor: "rgba(124,108,255,0.5)" },
+          },
+        },
+      ],
+    };
+  }, [rows]);
+  if (!option) return <EmptyChart />;
+  return <ReactECharts option={option} style={{ height: 280, width: "100%" }} />;
+}
+
+function LatencyBreakdown({
+  retrieve,
+  rerank,
+  generate,
+}: {
+  retrieve: number;
+  rerank: number;
+  generate: number;
+}) {
+  const option = useMemo(
+    () => ({
+      tooltip: {
+        trigger: "axis",
+        axisPointer: { type: "shadow" },
+        formatter: (params: any[]) => {
+          const total = params.reduce((s, p) => s + p.value, 0);
+          return params
+            .map(
+              (p) =>
+                `<span style="color:${p.color}">●</span> ${p.seriesName}: <b>${p.value}ms</b>`
+            )
+            .join("<br/>") + `<br/>Total: <b>${total}ms</b>`;
+        },
+      },
+      legend: { top: 0, textStyle: { color: "#374151", fontSize: 11 } },
+      grid: { left: 40, right: 30, top: 30, bottom: 16 },
+      xAxis: {
+        type: "value",
+        axisLabel: { color: "#6b7280", fontSize: 10, formatter: "{value}ms" },
+        splitLine: { lineStyle: { color: "#eef0f5" } },
+      },
+      yAxis: {
+        type: "category",
+        data: ["avg query"],
+        axisTick: { show: false },
+        axisLabel: { color: "#374151" },
+        axisLine: { show: false },
+      },
+      series: [
+        { name: "Retrieve", type: "bar", stack: "total", data: [retrieve], itemStyle: { color: "#3b82f6", borderRadius: [4, 0, 0, 4] } },
+        { name: "Rerank", type: "bar", stack: "total", data: [rerank], itemStyle: { color: "#a855f7" } },
+        { name: "Generate", type: "bar", stack: "total", data: [generate], itemStyle: { color: "#22c55e", borderRadius: [0, 4, 4, 0] } },
+      ],
+    }),
+    [retrieve, rerank, generate]
+  );
+  return <ReactECharts option={option} style={{ height: 110, width: "100%" }} />;
+}
+
+function UserBars({
+  byRole,
+  total,
+}: {
+  byRole: Record<string, number>;
+  total: number;
+}) {
+  const sorted = useMemo(
+    () =>
+      Object.entries(byRole)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 12),
+    [byRole]
+  );
+  const option = useMemo(
+    () => ({
+      tooltip: {
+        trigger: "axis",
+        axisPointer: { type: "shadow" },
+        formatter: (params: any[]) => {
+          const p = params[0];
+          const pct = total ? ((p.value / total) * 100).toFixed(1) : "0";
+          return `<b>${p.name}</b><br/>${p.value} queries · ${pct}%`;
+        },
+      },
+      grid: { left: 90, right: 30, top: 8, bottom: 16 },
+      xAxis: {
+        type: "value",
+        axisLabel: { color: "#6b7280", fontSize: 10 },
+        splitLine: { lineStyle: { color: "#eef0f5" } },
+      },
+      yAxis: {
+        type: "category",
+        data: sorted.map(([u]) => u).reverse(),
+        axisLabel: { color: "#374151", fontSize: 11, fontWeight: 500 },
+        axisTick: { show: false },
+        axisLine: { show: false },
+      },
+      series: [
+        {
+          type: "bar",
+          data: sorted
+            .map(([, n]) => n)
+            .reverse()
+            .map((v) => ({ value: v, itemStyle: { color: "#7c6cff", borderRadius: [0, 4, 4, 0] } })),
+          barWidth: 14,
+          label: {
+            show: true,
+            position: "right",
+            color: "#111827",
+            fontSize: 10.5,
+            fontWeight: 600,
+          },
+        },
+      ],
+    }),
+    [sorted, total]
+  );
+  if (!sorted.length) return <EmptyChart />;
+  return <ReactECharts option={option} style={{ height: Math.max(120, sorted.length * 24), width: "100%" }} />;
+}
+
+function EmptyChart() {
+  return (
+    <div className="text-center text-fg-subtle text-[12px] py-8 italic">
+      No data yet — run a few queries and come back.
+    </div>
+  );
+}
+
 const MODE_STYLE: Record<
   AnswerMode,
   { label: string; icon: React.ElementType; color: string; barBg: string }
@@ -326,6 +700,9 @@ const MODE_STYLE: Record<
   general: { label: "General", icon: Sparkles, color: "text-accent", barBg: "bg-accent" },
   refused: { label: "Refused", icon: ShieldAlert, color: "text-clearance-restricted", barBg: "bg-clearance-restricted" },
   unknown: { label: "Unknown", icon: HelpCircle, color: "text-fg-muted", barBg: "bg-fg-muted/40" },
+  social: { label: "Social", icon: Sparkles, color: "text-accent", barBg: "bg-accent/60" },
+  meta: { label: "Meta", icon: Sparkles, color: "text-accent", barBg: "bg-accent/70" },
+  system: { label: "System", icon: Sparkles, color: "text-accent", barBg: "bg-accent/80" },
 };
 
 function ModeBar({ mode, count, pct }: { mode: AnswerMode; count: number; pct: number }) {
@@ -408,6 +785,9 @@ function computeStats(rows: AuditRow[]) {
     refused: 0,
     general: 0,
     unknown: 0,
+    social: 0,
+    meta: 0,
+    system: 0,
   };
   for (const r of rows) {
     const m = (r.answer_mode || "grounded") as AnswerMode;

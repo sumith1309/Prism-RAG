@@ -240,6 +240,7 @@ async def retrieve(
                 rrf_score=float(rrf_s),
                 rerank_score=rerank_s,
                 source_index=i,
+                chunk_index=int(meta.get("chunk_index", 0) or 0),
             )
             for i, (text, meta, rrf_s, rerank_s) in enumerate(reranked, start=1)
         ]
@@ -254,6 +255,7 @@ async def retrieve(
             rrf_score=float(rrf_s),
             rerank_score=None,
             source_index=i,
+            chunk_index=int(meta.get("chunk_index", 0) or 0),
         )
         for i, (text, meta, rrf_s) in enumerate(top_candidates[:top_k], start=1)
     ]

@@ -26,6 +26,7 @@ export interface Source {
   text: string;
   rrf_score: number;
   rerank_score: number | null;
+  chunk_index?: number;
 }
 
 export interface ChatMessage {
@@ -113,7 +114,7 @@ export interface AuditResponse {
   rows: AuditRow[];
 }
 
-export type AnswerMode = "grounded" | "refused" | "general" | "unknown" | "social";
+export type AnswerMode = "grounded" | "refused" | "general" | "unknown" | "social" | "meta" | "system";
 
 export interface WelcomeTier {
   level: number;
@@ -121,6 +122,62 @@ export interface WelcomeTier {
   description: string;
   count: number;
   accessible: boolean;
+}
+
+export interface GraphNode {
+  id: string;
+  type: "doc" | "chunk";
+  label: string;
+  doc_id: string | null;
+  classification: Classification | null;
+  doc_level: number | null;
+  disabled_for_roles: string[];
+  uploaded_by_username: string | null;
+  uploaded_by_role: string | null;
+  page: number | null;
+  section: string | null;
+  chunk_index: number | null;
+  text_preview: string | null;
+}
+
+export interface GraphEdge {
+  source: string;
+  target: string;
+  kind: string;
+}
+
+export interface GraphResponse {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  stats: {
+    docs: number;
+    chunks: number;
+    by_classification: Record<string, number>;
+  };
+}
+
+export interface GraphHeatResponse {
+  docs: Record<string, { retrieved: number }>;
+  chunks: Record<string, { cited: number }>;
+  total_queries: number;
+  total_citations: number;
+}
+
+export interface TraceStageHit {
+  chunk_id: string;
+  doc_id: string;
+  score: number;
+}
+
+export interface GraphTraceResponse {
+  query: string;
+  role: string;
+  level: number;
+  dense: TraceStageHit[];
+  bm25: TraceStageHit[];
+  rrf: TraceStageHit[];
+  rerank: TraceStageHit[];
+  latency_ms: number;
 }
 
 export interface WelcomePayload {
@@ -152,6 +209,7 @@ export interface ThreadTurn {
   sources: Source[];
   refused: boolean;
   answer_mode: AnswerMode;
+  faithfulness: number; // -1 = not scored, 0..1 otherwise
   created_at: string;
 }
 

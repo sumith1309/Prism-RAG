@@ -19,9 +19,18 @@ class DocumentMeta(BaseModel):
 
 
 class VisibilityUpdate(BaseModel):
-    """Exec-only: roles to HIDE the document from (guest/employee/manager).
-    Executive is never in this list — the exec always retains visibility."""
-    disabled_for_roles: list[str] = Field(default_factory=list)
+    """Exec-only atomic visibility update. Either field is optional, but
+    at least one must be provided.
+
+    - ``disabled_for_roles``: roles to HIDE the doc from (guest/employee/
+      manager). Executive is silently stripped — exec always keeps access.
+    - ``doc_level``: reclassify the doc between 1 (PUBLIC) and 4
+      (RESTRICTED). Changing level rewrites per-chunk metadata in Qdrant
+      and the BM25 index so the vector-store RBAC filter picks up the new
+      level without a full re-ingest.
+    """
+    disabled_for_roles: Optional[list[str]] = None
+    doc_level: Optional[int] = None
 
 
 class RetrievedChunk(BaseModel):
@@ -33,6 +42,7 @@ class RetrievedChunk(BaseModel):
     rrf_score: float = 0.0
     rerank_score: Optional[float] = None
     source_index: int = 0
+    chunk_index: int = 0  # stable id within the doc — used by the graph viz
 
 
 class ChatMessage(BaseModel):
@@ -68,6 +78,7 @@ class ThreadTurn(BaseModel):
     sources: list[dict] = Field(default_factory=list)
     refused: bool = False
     answer_mode: str = "grounded"
+    faithfulness: float = -1.0
     created_at: datetime
 
 

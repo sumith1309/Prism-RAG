@@ -224,6 +224,67 @@ def ingest_file(
     return doc
 
 
+def set_doc_level(doc_id: str, new_level: int) -> Optional[store.Document]:
+    """Reclassify a doc without re-ingesting. Updates the SQLite row, the
+    Qdrant per-chunk ``doc_level`` payload (so the RBAC filter picks up the
+    new level), and the BM25 pickle's meta array.
+
+    Returns the updated Document, or None if the doc_id is unknown.
+    """
+    new_level = int(new_level)
+    if new_level < 1 or new_level > 4:
+        raise ValueError(f"doc_level must be in 1..4, got {new_level}")
+
+    doc = store.get_document(doc_id)
+    if not doc:
+        return None
+    if doc.doc_level == new_level:
+        return doc
+
+    # 1. Qdrant payload — qdrant-client's set_payload takes a Filter via
+    # the `points` kwarg (not `points_selector`). The previous impl used
+    # the wrong kwarg and silently swallowed the TypeError, leaving
+    # chunks stuck at their old doc_level so the RBAC filter excluded
+    # them for every role below the original level.
+    try:
+        client = get_qdrant()
+        client.set_payload(
+            collection_name=settings.QDRANT_COLLECTION,
+            payload={"doc_level": new_level},
+            points=qm.Filter(
+                must=[qm.FieldCondition(key="doc_id", match=qm.MatchValue(value=doc_id))]
+            ),
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("set_doc_level Qdrant update failed: %s", e)
+
+    # 2. BM25 pickle meta
+    bm25_path = settings.abs(settings.EMBEDDINGS_DIR) / f"{doc_id}.pkl"
+    if bm25_path.exists():
+        try:
+            with open(bm25_path, "rb") as f:
+                bundle = pickle.load(f)
+            for m in bundle.get("meta", []):
+                m["doc_level"] = new_level
+            with open(bm25_path, "wb") as f:
+                pickle.dump(bundle, f)
+        except Exception:
+            pass
+
+    # 3. Registry row
+    from sqlmodel import Session
+    with Session(store._get_engine()) as s:
+        row = s.get(store.Document, doc_id)
+        if row is None:
+            return None
+        row.doc_level = new_level
+        s.add(row)
+        s.commit()
+        s.refresh(row)
+        return row
+
+
 def delete_doc(doc_id: str) -> bool:
     doc = store.get_document(doc_id)
     if not doc:

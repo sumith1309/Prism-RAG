@@ -7,6 +7,8 @@ import { SignInPage } from "./pages/SignInPage";
 import { ChatPage } from "./pages/ChatPage";
 import { AuditLogPage } from "./pages/AuditLogPage";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
+import { GraphPage } from "./pages/GraphPage";
+import { PipelinePage } from "./pages/PipelinePage";
 import { useAppStore } from "./store/appStore";
 import { fetchMe } from "./lib/api";
 import { getToken } from "./lib/auth";
@@ -65,6 +67,15 @@ function AnalyticsShell() {
   );
 }
 
+function GraphShell() {
+  return (
+    <div className="flex-1 flex flex-col min-w-0">
+      <Header onOpenSettings={() => {}} onClearChat={() => {}} />
+      <GraphPage />
+    </div>
+  );
+}
+
 export default function App() {
   useBootAuth();
   useGlobalLightTheme();
@@ -73,11 +84,15 @@ export default function App() {
     <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/signin" element={<SignInPage />} />
+      {/* Public Pipeline Lab — anyone can run the live retrieval + generation
+          pipeline against the full corpus. No auth required. */}
+      <Route path="/pipeline" element={<PipelinePage />} />
       <Route path="/app" element={<ProtectedShell />}>
         <Route index element={<ChatShell />} />
         <Route path="t/:threadId" element={<ChatShell />} />
         <Route path="audit" element={<AuditShell />} />
         <Route path="analytics" element={<AnalyticsShell />} />
+        <Route path="graph" element={<GraphShell />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

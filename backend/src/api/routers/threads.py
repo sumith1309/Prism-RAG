@@ -51,6 +51,7 @@ def get_my_thread(thread_id: str, user: CurrentUser = Depends(get_current_user))
                 sources=sources,
                 refused=bool(r.refused),
                 answer_mode=r.answer_mode or "grounded",
+                faithfulness=float(getattr(r, "faithfulness", -1.0) or -1.0),
                 created_at=r.created_at,
             )
         )

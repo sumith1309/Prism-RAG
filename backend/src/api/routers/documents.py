@@ -17,7 +17,7 @@ from src.auth.dependencies import CurrentUser, get_current_user, require_level
 from src.config import settings
 from src.core import store
 from src.core.schemas import DocumentMeta, UploadResponse, VisibilityUpdate
-from src.pipelines.embedding_pipeline import delete_doc, ingest_file
+from src.pipelines.embedding_pipeline import delete_doc, ingest_file, set_doc_level
 from src.pipelines.loaders import SUPPORTED_EXTS
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
@@ -60,9 +60,15 @@ async def list_docs(user: CurrentUser = Depends(get_current_user)):
 async def upload_docs(
     files: list[UploadFile] = File(...),
     classification: Optional[int] = Form(default=None),
+    disabled_for_roles: Optional[str] = Form(default=None),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Upload with clearance cap: 1 <= classification <= user.level; default = user.level."""
+    """Upload with clearance cap: 1 <= classification <= user.level; default = user.level.
+
+    ``disabled_for_roles`` (exec-only, comma-separated) lets the exec set
+    per-role visibility at upload time. Silently dropped for non-exec
+    users — they can't control visibility beyond clearance anyway.
+    """
     desired_level = int(classification) if classification is not None else int(user.level)
     if desired_level < 1 or desired_level > int(user.level):
         raise HTTPException(
@@ -72,6 +78,14 @@ async def upload_docs(
                 f"({user.level}); got {desired_level}."
             ),
         )
+    # Parse + filter disabled_for_roles — only honored for exec uploads.
+    disable_set: list[str] = []
+    if disabled_for_roles and user.role == "executive":
+        disable_set = [
+            r.strip().lower()
+            for r in disabled_for_roles.split(",")
+            if r.strip().lower() in _TOGGLABLE_ROLES
+        ]
 
     out: list[UploadResponse] = []
     max_bytes = settings.MAX_UPLOAD_MB * 1024 * 1024
@@ -110,6 +124,8 @@ async def upload_docs(
                 uploaded_by_username=user.username,
                 uploaded_by_role=user.role,
             )
+            if disable_set:
+                store.set_disabled_roles(doc.doc_id, disable_set)
             out.append(
                 UploadResponse(
                     doc_id=doc.doc_id,
@@ -152,12 +168,42 @@ async def update_visibility(
     req: VisibilityUpdate,
     _user: CurrentUser = Depends(require_level(4)),
 ):
-    """Exec-only per-role visibility switch. Body carries the set of roles
-    to HIDE the doc from. 'executive' is silently dropped — exec must
-    always retain visibility to manage their own toggles."""
-    dirty = [r.strip().lower() for r in req.disabled_for_roles or []]
-    clean = [r for r in dirty if r in _TOGGLABLE_ROLES]
-    d = store.set_disabled_roles(doc_id, clean)
-    if d is None:
+    """Exec-only atomic visibility update. Accepts either or both fields:
+
+    - ``disabled_for_roles`` — which non-exec roles should be hidden.
+    - ``doc_level`` — reclassify the doc (1..4). Rewrites Qdrant + BM25
+      metadata so retrieval picks up the new level without re-ingest.
+
+    At least one field must be present. The frontend uses this to express
+    "visible to these roles" as a single atomic change: it picks the right
+    ``doc_level`` (clearance floor) and ``disabled_for_roles`` (hide list)
+    in one shot.
+    """
+    if req.disabled_for_roles is None and req.doc_level is None:
+        raise HTTPException(
+            status_code=400,
+            detail="must provide disabled_for_roles and/or doc_level",
+        )
+
+    if req.doc_level is not None:
+        if req.doc_level < 1 or req.doc_level > 4:
+            raise HTTPException(
+                status_code=400,
+                detail=f"doc_level must be between 1 and 4; got {req.doc_level}",
+            )
+        updated = set_doc_level(doc_id, req.doc_level)
+        if updated is None:
+            raise HTTPException(status_code=404, detail="document not found")
+
+    if req.disabled_for_roles is not None:
+        dirty = [r.strip().lower() for r in req.disabled_for_roles]
+        clean = [r for r in dirty if r in _TOGGLABLE_ROLES]
+        updated = store.set_disabled_roles(doc_id, clean)
+        if updated is None:
+            raise HTTPException(status_code=404, detail="document not found")
+
+    # Final state (at least one mutation ran — grab the fresh row).
+    final = store.get_document(doc_id)
+    if final is None:
         raise HTTPException(status_code=404, detail="document not found")
-    return _to_meta(d)
+    return _to_meta(final)

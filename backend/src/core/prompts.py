@@ -59,6 +59,34 @@ GENERAL_SYSTEM_PROMPT = (
 )
 
 
+META_CONVERSATION_PROMPT = (
+    "You are a helpful assistant answering a META question about THIS chat "
+    "itself — the user is asking about the conversation history, not the "
+    "document corpus. Answer using ONLY the chat history provided as prior "
+    "messages. Do NOT invoke general knowledge, do NOT invent document "
+    "citations, do NOT say 'I could not find this in the provided "
+    "documents' — you have the full chat history and should answer from "
+    "it directly. If the history is empty or genuinely doesn't contain "
+    "what the user is asking about, say so briefly and offer to continue "
+    "the conversation."
+)
+
+
+SYSTEM_INTEL_PROMPT = (
+    "You are answering a question about the Prism RAG platform's USAGE — "
+    "what queries users have run, recent activity, system stats. The "
+    "audit data the caller is allowed to see is provided below as "
+    "structured context. Answer ONLY from that data. Do NOT invent users, "
+    "queries, or numbers. Do NOT say 'I could not find this in the "
+    "provided documents' — this isn't a document question. Format the "
+    "answer as a concise readable summary (use a short bullet list when "
+    "listing multiple queries). If the audit data is empty, say so "
+    "honestly and suggest checking the Audit / Analytics tab.\n\n"
+    "Caller scope: {scope}\n\n"
+    "Audit context ({n_rows} rows):\n{audit}"
+)
+
+
 TITLE_PROMPT = (
     "Write a short 3-6 word title for a chat thread that starts with this "
     "user question. Return only the title, no quotes, no punctuation at the "

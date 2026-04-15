@@ -59,14 +59,16 @@ def _mode_for(token: str, query: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def test_guest_out_of_corpus_query_never_returns_general() -> None:
-    """Guest asks an out-of-corpus question — must NOT be 'general' (L4-only).
-    Depending on RRF marginal matches it may be 'unknown' or 'grounded'; either
-    is acceptable as long as it isn't 'general' (which would leak that the
-    corpus-existence heuristic ran)."""
+def test_guest_out_of_corpus_query_returns_general_or_unknown() -> None:
+    """Guest asks an off-corpus question. As of the unified routing rule
+    (any role gets `general` when bypass probe finds nothing higher),
+    this is allowed to return 'general' — leaking nothing because the
+    query matches no doc at any clearance. It must NOT be 'refused'
+    (that would leak that some L4 doc shadow-matched), and must NOT be
+    'grounded' on actual citations (gibberish → no real chunks)."""
     tok = _login("guest", "guest_pass")
     mode = _mode_for(tok, "asdhjkfgaw quantum encryption protocol xyz")
-    assert mode != "general", f"guest must never see general mode, got {mode!r}"
+    assert mode in {"general", "unknown"}, f"guest got disallowed mode {mode!r}"
 
 
 def test_guest_rbac_blocked_query_never_returns_refused() -> None:
@@ -92,15 +94,18 @@ def test_manager_blocked_query_never_returns_refused() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_executive_truly_out_of_corpus_query_returns_general_not_unknown() -> None:
+def test_executive_truly_out_of_corpus_query_returns_general_or_refused() -> None:
     """Exec asks a clearly out-of-corpus question. The exact mode depends on
-    whether any retriever surfaces a marginal match; if nothing matches at all
-    the mode must be 'general' (L4 sees the split)."""
+    whether any retriever surfaces a marginal match. With unified routing:
+    - if BM25 happens to token-match a restricted doc (e.g. 'quantum
+      encryption' could BM25-match a security/encryption chunk) the bypass
+      probe registers a higher match → mode='refused' (with diagnostic).
+    - if nothing matches anywhere → mode='general' (general-knowledge fallback).
+    Both are correct; what we must NOT see is 'unknown' (exec should always
+    get either a refusal diagnostic or a general-knowledge answer)."""
     tok = _login("exec", "exec_pass")
     mode = _mode_for(tok, "asdhjkfgaw quantum encryption protocol xyz")
-    # Either 'general' (nothing matched) or 'unknown' (fell through _looks_like_real_query)
-    # — but NEVER 'refused' (no higher-clearance doc exists for gibberish).
-    assert mode in {"general", "unknown"}, f"exec out-of-corpus got {mode!r}"
+    assert mode in {"general", "refused"}, f"exec out-of-corpus got {mode!r}"
 
 
 def test_executive_grounded_query_returns_grounded() -> None:

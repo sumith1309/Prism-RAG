@@ -171,6 +171,17 @@ export function useChatStream() {
                     : m
                 )
               ),
+            onAnswerReset: () =>
+              // Server is restarting the answer (e.g. grounded refusal
+              // → general fallback for L4). Wipe the streamed tokens
+              // so the new answer doesn't append to the old refusal.
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMsg.id
+                    ? { ...m, content: "", sources: [], faithfulness: undefined }
+                    : m
+                )
+              ),
             onWelcome: (payload) =>
               setMessages((prev) =>
                 prev.map((m) =>

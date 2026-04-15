@@ -281,6 +281,7 @@ export interface ChatStreamCallbacks {
   onCached: () => void;
   onCorrective: (rewritten: string, original: string) => void;
   onContextualized: (rewritten: string, original: string) => void;
+  onAnswerReset: () => void;
   onWelcome: (payload: WelcomePayload) => void;
   onDone: (answerMode: string, thread_id: string, meta: DoneMeta) => void;
   onError: (message: string) => void;
@@ -330,6 +331,9 @@ export async function streamChat(
           break;
         case "contextualized":
           callbacks.onContextualized(data.rewritten || "", data.original || "");
+          break;
+        case "answer_reset":
+          callbacks.onAnswerReset();
           break;
         case "welcome":
           callbacks.onWelcome(data as WelcomePayload);

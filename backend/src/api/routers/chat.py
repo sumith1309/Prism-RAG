@@ -976,6 +976,14 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                             }
 
                 # ── 6. Decide final mode ─────────────────────────────────
+                # Routing matrix:
+                #   has_higher_match=True  → L4: refused · non-L4: unknown
+                #     (don't leak that a higher-clearance doc exists)
+                #   has_higher_match=False → general for ANY role
+                #     (it's safe — the question matches NOTHING in the
+                #     corpus at any clearance, so there's nothing to leak.
+                #     Refusing here just frustrates users with off-topic
+                #     questions like "atomic weight of hydrogen".)
                 if grounded_ok:
                     answer_mode = "grounded"
                 elif not _looks_like_real_query(req.query):
@@ -986,10 +994,10 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                     )
                     retrieve_ms += probe_ms
                     has_higher_match = bool(probe) and _passes_bar(probe)
-                    if user.level >= 4:
-                        answer_mode = "refused" if has_higher_match else "general"
+                    if has_higher_match:
+                        answer_mode = "refused" if user.level >= 4 else "unknown"
                     else:
-                        answer_mode = "unknown"
+                        answer_mode = "general"
 
                 # ── 7. Emit + stream ─────────────────────────────────────
                 t_gen = time.perf_counter()
@@ -1055,23 +1063,46 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                 if req.use_faithfulness and answer_mode == "grounded" and full_answer.strip():
                     faithfulness = await _faithfulness_score(full_answer, chunks)
 
-                # ── 8b. Post-hoc demotion: grounded → unknown when the LLM
-                # itself refused. The LLM's refusal is the authoritative
-                # signal — it has seen the chunks and decided they don't
-                # answer the question. Faithfulness is a corroborator, not a
-                # gate: a vacuous refusal can still score 100% faithful
-                # (trivially consistent with thin sources), and a low score
-                # can just mean the judge was noisy. If the LLM's own answer
-                # reads like "I could not find this" — short, explicit,
-                # non-substantive — we trust it over the retrieval scores,
-                # drop the sources, and render the "No confident answer"
-                # card. We keep `full_answer` so the UI shows the LLM's
-                # wording rather than a generic template.
+                # ── 8b. Post-hoc demotion: grounded → (general | unknown)
+                # when the LLM itself refused on retrieved chunks. The
+                # demotion mirrors the primary mode classifier: bypass
+                # probe decides the route — same metadata-leak protection,
+                # same useful general-knowledge fallback for off-corpus
+                # questions, applied uniformly across roles.
                 if answer_mode == "grounded" and _answer_is_refusal(full_answer):
-                    answer_mode = "unknown"
                     returned_chunks = 0
                     cited_doc_ids = []
                     sources_json = ""
+                    probe2, probe2_ms = await _retrieve_with_timing(
+                        req.query, user.level, req, bypass=True
+                    )
+                    retrieve_ms += probe2_ms
+                    higher_match2 = bool(probe2) and _passes_bar(probe2)
+                    if higher_match2:
+                        # Higher-clearance doc would have answered. Don't
+                        # leak its existence — show 'unknown' (or 'refused'
+                        # for L4 with the diagnostic).
+                        answer_mode = "refused" if user.level >= 4 else "unknown"
+                    else:
+                        # Nothing anywhere in the corpus. Re-stream the
+                        # answer with the general-knowledge prompt so the
+                        # user actually gets a useful response.
+                        answer_mode = "general"
+                        full_answer = ""
+                        faithfulness = -1.0
+                        yield {"event": "answer_reset", "data": "{}"}
+                        yield {
+                            "event": "general_mode",
+                            "data": json.dumps(
+                                {
+                                    "message": "Not in your corpus — falling back to general knowledge."
+                                }
+                            ),
+                        }
+                        async for delta in _stream_general(req.query, req.history):
+                            full_answer += delta
+                            yield {"event": "token", "data": json.dumps({"delta": delta})}
+                        tokens_completion = _approx_tokens(full_answer)
 
                 # ── 9. Cache it ──────────────────────────────────────────
                 chat_cache.put(

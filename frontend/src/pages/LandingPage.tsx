@@ -3,11 +3,12 @@ import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import {
   ArrowRight,
-  BookOpenCheck,
   CheckCircle2,
+  Cpu,
   Database,
   Gauge,
   Github,
+  Layers,
   Lock,
   MessagesSquare,
   Shield,
@@ -15,6 +16,7 @@ import {
   Sparkles,
   Terminal as TerminalIcon,
   Upload,
+  Zap,
 } from "lucide-react";
 
 import { AnimatedBeamPipeline } from "@/components/magic/AnimatedBeam";
@@ -29,6 +31,7 @@ export function LandingPage() {
     <div className="min-h-screen w-full bg-light-bg text-light-fg">
       <Nav />
       <Hero />
+      <PipelineShowcase />
       <StatsStrip />
       <FeatureBento />
       <PlaygroundSection />
@@ -65,14 +68,18 @@ function Nav() {
           </span>
         </Link>
         <div className="flex items-center gap-5 text-[13px] text-light-fgMuted">
-          <a href="#playground" className="hidden sm:inline hover:text-light-fg transition-colors">
-            Playground
+          <Link
+            to="/pipeline"
+            className="hidden sm:inline-flex items-center gap-1.5 hover:text-light-accent transition-colors font-medium"
+          >
+            <Cpu className="w-3.5 h-3.5" strokeWidth={2} />
+            Pipeline Lab
+          </Link>
+          <a href="#features" className="hidden sm:inline hover:text-light-fg transition-colors">
+            Features
           </a>
           <a href="#cli" className="hidden sm:inline hover:text-light-fg transition-colors">
             CLI
-          </a>
-          <a href="#features" className="hidden sm:inline hover:text-light-fg transition-colors">
-            Features
           </a>
           <Link
             to="/signin"
@@ -116,9 +123,11 @@ function Hero() {
         transition={{ delay: 0.9, duration: 0.45 }}
         className="mt-6 text-[17px] sm:text-[18px] text-light-fgMuted max-w-2xl leading-relaxed"
       >
-        A retrieval-augmented chat for classified document corpora. Access is enforced at the
-        vector-store filter — not in the prompt — so the model can never leak what a user isn't
-        cleared to see.
+        A retrieval-augmented chat platform with a six-mode answer engine,
+        per-role visibility controls, an interactive 3D knowledge graph, an
+        executive ECharts analytics suite, and a public Pipeline Lab where
+        anyone can watch the entire RAG system run live — all enforced at
+        the vector-store filter, not the prompt.
       </motion.p>
 
       <motion.div
@@ -213,14 +222,113 @@ function HangingCTA({ to, children }: { to: string; children: React.ReactNode })
   );
 }
 
+// ─── Pipeline Showcase — flagship public feature callout ──────────────
+function PipelineShowcase() {
+  return (
+    <section className="relative max-w-6xl mx-auto px-6 -mt-4 sm:-mt-2 mb-6">
+      <motion.div
+        initial={{ opacity: 0, y: 18 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, amount: 0.3 }}
+        transition={{ duration: 0.5, ease: "easeOut" }}
+        className="relative rounded-2xl border border-light-accent/30 bg-gradient-to-br from-white via-light-accent/5 to-[#a18dff]/10 shadow-light-card p-6 sm:p-8 overflow-hidden"
+      >
+        <BorderBeam size={260} duration={9} colorFrom="#5b47ff" colorTo="#a18dff" />
+
+        {/* Decorative dotted grid */}
+        <div
+          aria-hidden
+          className="absolute inset-0 pointer-events-none opacity-50"
+          style={{
+            backgroundImage:
+              "radial-gradient(circle at 1px 1px, rgba(91,71,255,0.10) 1px, transparent 0)",
+            backgroundSize: "22px 22px",
+          }}
+        />
+
+        <div className="relative grid sm:grid-cols-[1.3fr_1fr] gap-5 items-center">
+          <div>
+            <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-light-accent/10 border border-light-accent/30 text-[10.5px] font-semibold uppercase tracking-wider text-light-accent mb-3">
+              <Sparkles className="w-3 h-3" strokeWidth={2.25} />
+              Public Pipeline Lab · No sign-in required
+            </div>
+            <h2 className="text-[26px] sm:text-[30px] leading-tight font-semibold tracking-tight text-light-fg">
+              See every stage of the RAG pipeline run{" "}
+              <span className="bg-gradient-to-br from-light-accent via-[#8e74ff] to-[#b89eff] bg-clip-text text-transparent">
+                live
+              </span>
+              .
+            </h2>
+            <p className="mt-2.5 text-[14px] text-light-fgMuted leading-relaxed max-w-xl">
+              Type a question — watch the embedder, dual retrievers, RRF
+              fusion, cross-encoder reranker, generation, and faithfulness
+              judge fire one after another, with a real BGE vector heatmap, a
+              chunk rank-journey chart, and a side-by-side compare mode that
+              shows what reranking actually does.
+            </p>
+            <div className="mt-5 flex flex-wrap items-center gap-3">
+              <Link
+                to="/pipeline"
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-md bg-light-accent text-white text-[13.5px] font-semibold hover:bg-light-accentHover hover:-translate-y-0.5 transition-all shadow-light-hang"
+              >
+                <Zap className="w-4 h-4" strokeWidth={2.25} />
+                Try it now
+                <ArrowRight className="w-4 h-4" />
+              </Link>
+              <span className="text-[11.5px] text-light-fgSubtle">
+                Runs against the full corpus · ~3–5s per query
+              </span>
+            </div>
+          </div>
+
+          {/* Right side — stage chips with subtle pulse */}
+          <div className="grid grid-cols-2 sm:grid-cols-2 gap-2">
+            {[
+              { label: "Embed", model: "MiniLM-L6 · 384d", colour: "#6366f1" },
+              { label: "Retrieve", model: "Qdrant + BM25", colour: "#3b82f6" },
+              { label: "Fuse + Rerank", model: "RRF · BGE-reranker", colour: "#a855f7" },
+              { label: "Generate", model: "gpt-4o-mini", colour: "#22c55e" },
+            ].map((s, i) => (
+              <motion.div
+                key={s.label}
+                initial={{ opacity: 0, x: 8 }}
+                whileInView={{ opacity: 1, x: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: 0.15 + i * 0.08, duration: 0.35 }}
+                className="rounded-md border border-light-border bg-white/85 backdrop-blur px-3 py-2 shadow-light-sm"
+              >
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className="w-2 h-2 rounded-full"
+                    style={{ background: s.colour, boxShadow: `0 0 6px ${s.colour}` }}
+                  />
+                  <span className="text-[11px] uppercase tracking-wider font-semibold text-light-fgMuted">
+                    Stage
+                  </span>
+                </div>
+                <div className="text-[13px] font-semibold text-light-fg mt-0.5">
+                  {s.label}
+                </div>
+                <div className="text-[10.5px] text-light-fgSubtle font-mono">
+                  {s.model}
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </motion.div>
+    </section>
+  );
+}
+
 // ─── Stats strip ─────────────────────────────────────────────────────────
 function StatsStrip() {
   const items = [
-    { label: "Classified documents", value: 10, suffix: "" },
-    { label: "Role levels", value: 4, suffix: "" },
-    { label: "Embedded chunks", value: 86, suffix: "" },
-    { label: "Automated tests", value: 35, suffix: "" },
-    { label: "RBAC leak cases blocked", value: 100, suffix: "%" },
+    { label: "Classified documents", value: 13, suffix: "" },
+    { label: "Answer modes", value: 6, suffix: "" },
+    { label: "Embedded chunks", value: 145, suffix: "" },
+    { label: "Integration tests", value: 38, suffix: "" },
+    { label: "RBAC leaks blocked", value: 100, suffix: "%" },
   ];
   return (
     <section className="border-y border-light-border bg-light-surface">
@@ -262,8 +370,8 @@ function FeatureBento() {
           span="2"
           accent
           icon={<Database className="w-4 h-4 text-light-accent" strokeWidth={1.75} />}
-          title="Hybrid retrieval + smart 4-way mode"
-          description="Dense (Qdrant) + BM25 fused via RRF, reranked by bge cross-encoder. Four answer modes — grounded, refused, general, unknown — with a metadata-leak-closing split only executives see."
+          title="Hybrid retrieval + smart 6-way mode"
+          description="Dense (Qdrant) + BM25 fused via RRF, reranked by BGE cross-encoder. Six answer modes — grounded, refused, general, unknown, plus social greetings and conversational/system intelligence — each routed by a dedicated detector before retrieval runs."
         >
           <div className="rounded-lg bg-light-elevated border border-light-border p-3">
             <AnimatedBeamPipeline />
@@ -272,45 +380,51 @@ function FeatureBento() {
 
         <BentoCard
           icon={<Lock className="w-4 h-4 text-light-accent" strokeWidth={1.75} />}
-          title="RBAC at the filter layer"
-          description="PUBLIC / INTERNAL / CONFIDENTIAL / RESTRICTED. The LLM physically cannot see what the user can't — no prompt-injection can exfiltrate it."
+          title="RBAC + per-role visibility"
+          description="Four clearance levels enforced at the Qdrant filter — and an exec-only switch to hide any individual doc from any subset of roles, atomically across the registry, vector index, and BM25 store."
         />
 
         <BentoCard
           icon={<Gauge className="w-4 h-4 text-light-accent" strokeWidth={1.75} />}
-          title="LLM-judged faithfulness"
-          description="Every grounded answer is scored against its sources. The result is persisted in the audit log and surfaced live as a 0–100% faithfulness badge."
+          title="Faithfulness + post-hoc demotion"
+          description="Every grounded answer is scored 0–1 by an LLM judge. Refusal-phrase detection demotes weakly-grounded responses to 'No confident answer' so misleading sources never reach the user."
         />
 
         <BentoCard
-          icon={<BookOpenCheck className="w-4 h-4 text-light-accent" strokeWidth={1.75} />}
-          title="Query cache + corrective retry"
-          description="Repeat queries serve from an in-memory LRU with 10-minute TTL. Weak first passes trigger an auto-rewrite and a second retrieval — Corrective RAG."
+          icon={<Cpu className="w-4 h-4 text-light-accent" strokeWidth={1.75} />}
+          title="Public Pipeline Lab"
+          description="Type any question on the public /pipeline route and watch the embed → dense → BM25 → RRF → rerank → generate → judge pipeline execute live. Real BGE vector heatmap, chunk rank-journey bump chart, no auth required."
         />
 
         <BentoCard
-          icon={<ShieldAlert className="w-4 h-4 text-light-accent" strokeWidth={1.75} />}
-          title="Full audit log + analytics"
-          description="Every query writes one row with mode, latency, tokens, cost, and faithfulness. The executive analytics dashboard aggregates live."
+          icon={<Layers className="w-4 h-4 text-light-accent" strokeWidth={1.75} />}
+          title="3D Knowledge Graph"
+          description="Force-directed view of every doc + chunk + relationship. Toggle the RBAC Lens to see what each role can reach; type a query and the retrieval path lights up across the corpus."
         />
 
         <BentoCard
           icon={<MessagesSquare className="w-4 h-4 text-light-accent" strokeWidth={1.75} />}
-          title="Persistent chat threads"
-          description="Server-stored per user with LLM-generated titles. Resume from any device; the full turn history reloads with latency + source metadata."
+          title="Conversational + meta + system"
+          description="Follow-up rewriting via budget-trimmed history. Meta-questions answered from the thread itself ('what was my first question?'). System-intelligence queries answered from the audit log, RBAC-scoped per role."
+        />
+
+        <BentoCard
+          icon={<ShieldAlert className="w-4 h-4 text-light-accent" strokeWidth={1.75} />}
+          title="ECharts analytics + audit"
+          description="Donut, gauge, Sankey, day×hour heatmap, latency bars, sparkline KPI strip. Built directly from the audit log — every query, every refusal, every faithfulness score, every role flow."
         />
 
         <BentoCard
           icon={<Upload className="w-4 h-4 text-light-accent" strokeWidth={1.75} />}
-          title="Clearance-capped uploads"
-          description="Every signed-in user can contribute — but only up to their own clearance. You can never publish something as more-secret than you are."
+          title="Uploads with provenance"
+          description="Every doc carries its uploader's username + role on a visible chip. Clearance-capped at upload, instantly re-classifiable by exec via the gear menu — no re-ingest required."
         />
 
         <BentoCard
           span="2"
           icon={<Sparkles className="w-4 h-4 text-light-accent" strokeWidth={1.75} />}
-          title="Retrieval trace panel — see every score"
-          description="Every message exposes its pipeline: latency bars, token counts, per-chunk RRF + rerank scores, and the faithfulness judgment. Nothing hidden, nothing claimed without a number behind it."
+          title="Retrieval trace on every message"
+          description="Each chat message exposes its full pipeline: per-stage latency bars, token counts, per-chunk RRF + rerank scores, faithfulness score, contextualization rewrites, corrective retries. Nothing hidden, nothing claimed without a number behind it."
         />
       </BentoGrid>
     </section>
@@ -319,9 +433,9 @@ function FeatureBento() {
 
 // ─── CLI section ─────────────────────────────────────────────────────────
 function CliSection() {
-  const repoUrl = "https://github.com/";
+  const repoUrl = "https://github.com/sumith1309/Prism-RAG";
   const installCmd =
-    "git clone <repo> && cd homework-basic && ./setup.sh && python rag_cli.py";
+    "git clone git@github.com:sumith1309/Prism-RAG.git && cd Prism-RAG/homework-basic && ./setup.sh && source .venv/bin/activate && python rag_cli.py";
 
   return (
     <section id="cli" className="max-w-6xl mx-auto px-6 py-24">
@@ -373,10 +487,10 @@ function CliSection() {
         </div>
 
         <Terminal
-          title="homework-basic · zsh"
+          title="Prism-RAG / homework-basic · zsh"
           lines={[
-            { prompt: "$", text: "git clone <repo> && cd homework-basic", delay: 0.2 },
-            { prompt: "$", text: "./setup.sh", delay: 1.6 },
+            { prompt: "$", text: "git clone git@github.com:sumith1309/Prism-RAG.git", delay: 0.2 },
+            { prompt: "$", text: "cd Prism-RAG/homework-basic && ./setup.sh", delay: 1.6 },
             {
               output: true,
               text: "==> Python virtual environment\n==> Downloading RFC 7519 PDF\n==> Starting Qdrant on :6333\n==> Done.",

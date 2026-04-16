@@ -159,6 +159,76 @@ async def hyde_rewrite(query: str) -> str:
     return query
 
 
+_RECENCY_KEYWORDS = {
+    "recent", "recently", "latest", "newest", "current", "currently",
+    "today", "tonight", "this week", "this month", "this quarter",
+    "this year", "last week", "last month", "last quarter", "last year",
+    "yesterday", "now", "upcoming", "just", "new", "updated", "recently",
+    "q1", "q2", "q3", "q4",
+}
+_RECENCY_YEAR_PATTERN = re.compile(r"\b(19|20)\d{2}\b")
+
+
+def _is_recency_sensitive(query: str) -> bool:
+    """Tier 3.3 — detect whether a query wants the NEWEST match, not
+    just any match. Triggers on:
+      - explicit year tokens (2023, 2024, etc.)
+      - recency keywords (recent, latest, this quarter, last month)
+      - quarter tags (Q1-Q4)
+
+    When true, we boost newer documents at rerank time so a 2019 policy
+    doesn't outrank a 2024 update on pure semantic similarity.
+    """
+    q = (query or "").lower()
+    if _RECENCY_YEAR_PATTERN.search(q):
+        return True
+    for kw in _RECENCY_KEYWORDS:
+        if kw in q:
+            return True
+    return False
+
+
+def _apply_recency_boost(
+    chunks: list[RetrievedChunk], max_age_days: int = 730
+) -> list[RetrievedChunk]:
+    """Re-sort chunks with a recency boost. Uses doc.created_at from the
+    SQLite store (a small SELECT, cached within-request). Boost is
+    bounded at 0.10 (in rerank-score units) for a brand-new doc and
+    decays linearly to 0 at max_age_days (default 2 years).
+
+    Only fires when rerank_score exists — for RRF-only paths the
+    absolute scale is too different for a fixed boost to be meaningful.
+    """
+    if not chunks:
+        return chunks
+    try:
+        from datetime import datetime
+        now = datetime.utcnow()
+        doc_age_days: dict[str, float] = {}
+        for d in store.list_documents():
+            created = d.created_at
+            if created is None:
+                doc_age_days[d.doc_id] = max_age_days
+                continue
+            age = (now - created).total_seconds() / 86400.0
+            doc_age_days[d.doc_id] = max(0.0, age)
+
+        def blended(c: RetrievedChunk) -> float:
+            if c.rerank_score is None:
+                return c.rrf_score
+            age = doc_age_days.get(c.doc_id, max_age_days)
+            factor = max(0.0, 1.0 - (age / max_age_days))
+            return c.rerank_score + 0.10 * factor
+
+        sorted_chunks = sorted(chunks, key=lambda c: -blended(c))
+        # Preserve source_index 1..N order on the new ranking
+        for i, c in enumerate(sorted_chunks, start=1):
+            c.source_index = i
+        return sorted_chunks
+    except Exception:
+        return chunks
+
+
 async def retrieve(
     query: str,
     doc_ids: Optional[list[str]] = None,
@@ -169,6 +239,7 @@ async def retrieve(
     max_doc_level: Optional[int] = None,
     bypass_rbac: bool = False,
     caller_role: Optional[str] = None,
+    prefer_recent: bool = False,
 ) -> list[RetrievedChunk]:
     """Retrieve top-k chunks for a query.
 
@@ -230,7 +301,7 @@ async def retrieve(
 
     if use_rerank and top_candidates:
         reranked = _rerank(query, top_candidates, top_n=top_k)
-        return [
+        out = [
             RetrievedChunk(
                 text=text,
                 doc_id=meta.get("doc_id", ""),
@@ -244,6 +315,9 @@ async def retrieve(
             )
             for i, (text, meta, rrf_s, rerank_s) in enumerate(reranked, start=1)
         ]
+        if prefer_recent:
+            out = _apply_recency_boost(out)
+        return out
 
     return [
         RetrievedChunk(

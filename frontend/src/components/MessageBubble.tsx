@@ -1,11 +1,12 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { motion } from "framer-motion";
-import { HelpCircle, Info, ShieldAlert, Sparkles, User } from "lucide-react";
+import { Clock, HelpCircle, Info, ShieldAlert, Sparkles, User } from "lucide-react";
 import type { ChatMessage } from "@/types";
 import { cn } from "@/lib/utils";
 import { AccessRequestBanner } from "./AccessRequestBanner";
 import { CitationCheckChip } from "./CitationCheckChip";
+import { ComparisonCard } from "./ComparisonCard";
 import { ConfidenceChip } from "./ConfidenceChip";
 import { DisambiguationCard } from "./DisambiguationCard";
 import { IntentMirror } from "./IntentMirror";
@@ -18,6 +19,7 @@ export function MessageBubble({
   precedingUserQuery,
   onPickSuggestion,
   onPickDisambiguation,
+  onCompareAll,
   onReRunWithIntent,
   onBroaden,
 }: {
@@ -25,6 +27,7 @@ export function MessageBubble({
   precedingUserQuery?: string;
   onPickSuggestion?: (q: string) => void;
   onPickDisambiguation?: (docId: string, query: string, messageId: string) => void;
+  onCompareAll?: (docIds: string[], query: string, messageId: string) => void;
   onReRunWithIntent?: (rewritten: string, originalQuery: string) => void;
   onBroaden?: (messageId: string) => void;
 }) {
@@ -105,7 +108,9 @@ export function MessageBubble({
 
   // Disambiguate: candidate-doc picker. Renders when retrieval found
   // multiple docs with comparable relevance and the agent paused to
-  // confirm which one the user actually means.
+  // confirm which one the user actually means. Also exposes a
+  // "Compare all" button (Tier 2.2) for when the user wants both docs
+  // covered in one turn.
   if (message.answerMode === "disambiguate" && message.disambiguation) {
     return (
       <DisambiguationCard
@@ -113,8 +118,20 @@ export function MessageBubble({
         onPick={(docId, query, messageId) =>
           onPickDisambiguation?.(docId, query, messageId)
         }
+        onCompareAll={
+          onCompareAll
+            ? (docIds, query, messageId) =>
+                onCompareAll(docIds, query, messageId)
+            : undefined
+        }
       />
     );
+  }
+
+  // Comparison: side-by-side columns — one answer per doc. Rendered
+  // when the user clicked "Compare all" on a disambiguation card.
+  if (message.answerMode === "comparison" && message.comparison?.columns?.length) {
+    return <ComparisonCard columns={message.comparison.columns} />;
   }
 
   // Unknown: neutral "no confident answer" card (all non-L4 + garbage +
@@ -212,7 +229,9 @@ export function MessageBubble({
 
           {!message.streaming &&
             (message.answerMode === "grounded" || message.answerMode === "general") &&
-            (typeof message.confidence === "number" || message.citationCheck) && (
+            (typeof message.confidence === "number" ||
+              message.citationCheck ||
+              message.recencyBoostApplied) && (
               <div className="flex items-center gap-2 flex-wrap">
                 {typeof message.confidence === "number" && (
                   <ConfidenceChip
@@ -226,6 +245,15 @@ export function MessageBubble({
                 )}
                 {message.citationCheck && (
                   <CitationCheckChip check={message.citationCheck} />
+                )}
+                {message.recencyBoostApplied && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full border border-accent/30 bg-accent-soft px-2 py-[3px] text-[10.5px] font-semibold text-accent"
+                    title="Recency-sensitive query: newer documents ranked higher."
+                  >
+                    <Clock className="w-3 h-3" strokeWidth={2.25} />
+                    Newer first
+                  </span>
                 )}
               </div>
             )}

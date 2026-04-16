@@ -72,6 +72,15 @@ export interface ChatMessage {
     weak: number[];
     score: number;
   } | null;
+  // Tier 2.2: cross-doc comparison columns. One entry per doc the user
+  // asked to compare. Renders as side-by-side ComparisonCard.
+  comparison?: {
+    query: string;
+    columns: ComparisonColumn[];
+  };
+  // Tier 3.3: true when retrieval applied a recency boost (query had
+  // "latest", "Q4 2024", etc.). Renders a small "newer-first" chip.
+  recencyBoostApplied?: boolean;
   corrective_rewrite?: string;
   contextualized_query?: string;
   welcome?: WelcomePayload;
@@ -161,7 +170,18 @@ export type AnswerMode =
   | "social"
   | "meta"
   | "system"
-  | "disambiguate";
+  | "disambiguate"
+  | "comparison";
+
+export interface ComparisonColumn {
+  doc_id: string;
+  filename: string;
+  label: string;
+  answer: string;
+  sources: Source[];
+  ok: boolean;
+  error: string;
+}
 
 export interface WelcomeTier {
   level: number;
@@ -263,6 +283,10 @@ export interface ThreadTurn {
     candidates: DisambigCandidate[];
     query?: string;
     chosen_doc_id?: string;
+  } | null;
+  // Only populated when answer_mode === "comparison".
+  comparison?: {
+    columns: ComparisonColumn[];
   } | null;
 }
 

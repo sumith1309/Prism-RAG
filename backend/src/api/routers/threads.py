@@ -41,16 +41,23 @@ def get_my_thread(thread_id: str, user: CurrentUser = Depends(get_current_user))
     for r in models.list_turns(thread_id):
         sources: list[dict] = []
         disambiguation: dict | None = None
+        comparison: dict | None = None
         raw = r.sources_json or ""
         if raw:
             try:
                 parsed = json.loads(raw)
                 # Grounded turns store a list of source chunks.
                 # Disambiguate turns store {"candidates": [...]} (a dict).
+                # Comparison turns store {"comparison": [...]} (a dict).
                 if isinstance(parsed, list):
                     sources = parsed
-                elif isinstance(parsed, dict) and "candidates" in parsed:
-                    disambiguation = parsed
+                elif isinstance(parsed, dict):
+                    if "candidates" in parsed:
+                        disambiguation = parsed
+                    elif "comparison" in parsed:
+                        comparison = {
+                            "columns": parsed["comparison"],
+                        }
             except Exception:
                 pass
         turns_out.append(
@@ -64,6 +71,7 @@ def get_my_thread(thread_id: str, user: CurrentUser = Depends(get_current_user))
                 faithfulness=float(getattr(r, "faithfulness", -1.0) or -1.0),
                 created_at=r.created_at,
                 disambiguation=disambiguation,
+                comparison=comparison,
             )
         )
     return ThreadDetail(

@@ -26,6 +26,12 @@ function turnToMessage(turn: ThreadTurn): ChatMessage {
       chosen_doc_id: turn.disambiguation.chosen_doc_id,
     };
   }
+  if (turn.answer_mode === "comparison" && turn.comparison) {
+    msg.comparison = {
+      query: "",
+      columns: turn.comparison.columns || [],
+    };
+  }
   return msg;
 }
 
@@ -99,6 +105,10 @@ export function useChatStream() {
         // to this doc (caller computes from recent turns). Explicit
         // activeDocIds always win over this.
         threadScopeDocId?: string;
+        // Tier 2.2: user clicked "Compare all" on a disambiguation card.
+        // Backend runs retrieval + generation once per doc in parallel
+        // and emits a single `comparison` event with all columns.
+        compareDocIds?: string[];
       }
     ) => {
       const trimmed = query.trim();
@@ -172,6 +182,7 @@ export function useChatStream() {
             preferred_doc_id: opts?.preferredDocId ?? null,
             skip_disambiguation: !!opts?.preferredDocId,
             override_intent: opts?.overrideIntent ?? null,
+            compare_doc_ids: opts?.compareDocIds ?? [],
           },
           {
             onThread: (threadId, _title, isNew) => {
@@ -311,6 +322,28 @@ export function useChatStream() {
                   m.id === assistantMsg.id ? { ...m, citationCheck: check } : m
                 )
               ),
+            onComparison: (q, columns) =>
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMsg.id
+                    ? {
+                        ...m,
+                        answerMode: "comparison" as AnswerMode,
+                        comparison: { query: q, columns },
+                        sources: [],
+                        streaming: false,
+                      }
+                    : m
+                )
+              ),
+            onRecencyBoost: () =>
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMsg.id
+                    ? { ...m, recencyBoostApplied: true }
+                    : m
+                )
+              ),
             onDone: (answerMode, thread_id, meta) => {
               const finalMode = (answerMode as AnswerMode) || "grounded";
               // Backend can demote grounded → unknown post-generation when the
@@ -323,7 +356,8 @@ export function useChatStream() {
                 finalMode === "general" ||
                 finalMode === "meta" ||
                 finalMode === "system" ||
-                finalMode === "disambiguate";
+                finalMode === "disambiguate" ||
+                finalMode === "comparison";
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantMsg.id

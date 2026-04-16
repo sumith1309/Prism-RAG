@@ -71,9 +71,14 @@ class ChatRequest(BaseModel):
     #   the raw input (original query is still shown in the chat bubble).
     # ``skip_disambiguation`` — emergency bypass if the user explicitly
     #   asks to search everything ("all docs", "don't ask, just answer").
+    # ``compare_doc_ids`` — user clicked "Compare all" on a disambiguation
+    #   card. Runs retrieval + generation ONCE per doc in parallel, emits
+    #   a `comparison` event carrying one labelled answer per doc. Each
+    #   doc's retrieval is scoped to just that doc, so there's no blending.
     preferred_doc_id: Optional[str] = None
     override_intent: Optional[str] = None
     skip_disambiguation: bool = False
+    compare_doc_ids: list[str] = Field(default_factory=list)
 
 
 class ThreadSummary(BaseModel):
@@ -96,6 +101,10 @@ class ThreadTurn(BaseModel):
     # the candidate docs offered to the user so thread-replay can re-
     # render the picker (greyed out once the user has chosen).
     disambiguation: Optional[dict] = None
+    # Agent: populated only when answer_mode == "comparison". Carries
+    # {columns: [per-doc answer objects]} so thread-replay can re-render
+    # the side-by-side comparison view.
+    comparison: Optional[dict] = None
 
 
 class ThreadDetail(BaseModel):

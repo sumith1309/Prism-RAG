@@ -123,6 +123,14 @@ export function ChatInterface() {
     send(query, { preferredDocId: docId, replyToMessageId: messageId });
   };
 
+  const compareAll = (docIds: string[], query: string, _messageId: string) => {
+    // Tier 2.2 — kick off the comparison flow. Backend runs one
+    // retrieval+generation per doc in parallel and emits a single
+    // `comparison` event with all columns.
+    if (!query.trim() || docIds.length < 2) return;
+    send(query, { compareDocIds: docIds });
+  };
+
   const reRunWithIntent = (rewritten: string) => {
     // Intent Mirror edit: treat the rewrite as a new user turn. The
     // original user message stays in the log above; the new answer is
@@ -162,6 +170,7 @@ export function ChatInterface() {
                   precedingUserQuery={precedingUserQuery}
                   onPickSuggestion={pickSuggestion}
                   onPickDisambiguation={pickDisambiguation}
+                  onCompareAll={compareAll}
                   onReRunWithIntent={reRunWithIntent}
                   onBroaden={broadenForMessage}
                 />

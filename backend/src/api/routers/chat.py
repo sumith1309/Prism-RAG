@@ -645,6 +645,7 @@ async def _retrieve_with_timing(
     req: ChatRequest,
     bypass: bool = False,
     caller_role: str | None = None,
+    prefer_recent: bool = False,
 ):
     t_retrieve = time.perf_counter()
     chunks = await retrieve(
@@ -657,6 +658,7 @@ async def _retrieve_with_timing(
         max_doc_level=None if bypass else user_level,
         bypass_rbac=bypass,
         caller_role=caller_role,
+        prefer_recent=prefer_recent,
     )
     retrieve_ms = int((time.perf_counter() - t_retrieve) * 1000)
     return chunks, retrieve_ms
@@ -667,11 +669,17 @@ async def _retrieve_multi(
     user_level: int,
     req: ChatRequest,
     caller_role: str | None = None,
+    prefer_recent: bool = False,
 ):
     """Run retrieval for each query variant in parallel, fuse with RRF."""
     t0 = time.perf_counter()
     results = await asyncio.gather(
-        *[_retrieve_with_timing(q, user_level, req, caller_role=caller_role) for q in queries],
+        *[
+            _retrieve_with_timing(
+                q, user_level, req, caller_role=caller_role, prefer_recent=prefer_recent
+            )
+            for q in queries
+        ],
         return_exceptions=True,
     )
     chunk_lists = []
@@ -726,6 +734,114 @@ async def _stream_system_intel(query, user, audit_rows, history):
     messages.append({"role": "user", "content": query})
     async for delta in _stream_chat(messages, max_tokens=500, temperature=0.2):
         yield delta
+
+
+async def _run_comparison(
+    query: str, doc_ids: list[str], user, base_req: ChatRequest
+) -> list[dict]:
+    """Tier 2.2 — run retrieval + generation ONCE per doc, scoped to that
+    single doc, in parallel. Returns one entry per doc:
+
+      {
+        "doc_id": "abc",
+        "filename": "HR_Policy.docx",
+        "label": "HR Policy",
+        "answer": "Streamed answer text citing [Source 1] etc.",
+        "sources": [<source payload>, ...],
+        "ok": True|False,
+        "error": "" | "<reason>"
+      }
+
+    Non-blocking per doc — if one doc's generation fails, the others still
+    come back. Each doc uses its OWN isolated ChatRequest copy so
+    top-level fields (doc_ids, preferred_doc_id) don't cross-contaminate.
+    """
+
+    async def _one(doc_id: str) -> dict:
+        # Scope this sub-request to a single doc. Copy the settings so
+        # the outer request's doc_ids / preferred_doc_id don't leak.
+        sub_req = ChatRequest(
+            query=query,
+            doc_ids=[doc_id],
+            use_hyde=base_req.use_hyde,
+            use_rerank=base_req.use_rerank,
+            use_multi_query=False,  # single-doc, no need
+            use_corrective=base_req.use_corrective,
+            use_faithfulness=False,  # skip to keep comparison fast
+            section_filter=base_req.section_filter,
+            history=[],
+            top_k=base_req.top_k,
+            thread_id=None,
+            preferred_doc_id=None,
+            skip_disambiguation=True,
+        )
+        try:
+            chunks, _ = await _retrieve_with_timing(
+                query, user.level, sub_req, caller_role=user.role
+            )
+        except Exception as e:
+            return {
+                "doc_id": doc_id,
+                "filename": "",
+                "label": "",
+                "answer": "",
+                "sources": [],
+                "ok": False,
+                "error": f"retrieve: {type(e).__name__}",
+            }
+        filename = chunks[0].filename if chunks else ""
+        if not chunks or not _passes_bar(chunks):
+            return {
+                "doc_id": doc_id,
+                "filename": filename,
+                "label": _prettify_filename(filename),
+                "answer": "This document doesn't have a strong match for your question.",
+                "sources": [],
+                "ok": False,
+                "error": "weak_match",
+            }
+        # Generate — collect full answer, no streaming (UX would be chaos
+        # with N parallel streams).
+        full = ""
+        try:
+            async for delta in _stream_grounded(query, chunks, []):
+                full += delta
+        except Exception as e:
+            return {
+                "doc_id": doc_id,
+                "filename": filename,
+                "label": _prettify_filename(filename),
+                "answer": "",
+                "sources": [],
+                "ok": False,
+                "error": f"generate: {type(e).__name__}",
+            }
+        sources_payload = [
+            {
+                "index": c.source_index,
+                "doc_id": c.doc_id,
+                "filename": c.filename,
+                "page": c.page,
+                "section": c.section,
+                "text": c.text,
+                "rrf_score": c.rrf_score,
+                "rerank_score": c.rerank_score,
+                "chunk_index": c.chunk_index,
+            }
+            for c in chunks
+        ]
+        return {
+            "doc_id": doc_id,
+            "filename": filename,
+            "label": _prettify_filename(filename),
+            "answer": full,
+            "sources": sources_payload,
+            "ok": True,
+            "error": "",
+        }
+
+    results = await asyncio.gather(*(_one(d) for d in doc_ids))
+    return list(results)
 
 
 async def _stream_meta(query, history):
@@ -1113,6 +1229,113 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
             }
             return
 
+        # ── Agent: cross-doc comparison short-circuit (Tier 2.2) ─────────
+        # User clicked "Compare all" on the disambiguation card. Run
+        # retrieval + generation ONCE per doc, scoped to that single
+        # doc, in parallel. Emit a `comparison` event with all answers
+        # + their sources; persist as a single ChatTurn with answer_mode
+        # = "comparison". Skips streaming — N parallel token streams is
+        # a UX disaster; we deliver all answers in one payload.
+        if (
+            req.compare_doc_ids
+            and len(req.compare_doc_ids) >= 2
+            and not req.preferred_doc_id
+        ):
+            t_cmp = time.perf_counter()
+            # Clamp to max 4 to keep latency bounded (4 × 3s each, in
+            # parallel, ≈ 3-4s wall-clock with slowest doc).
+            compare_ids = req.compare_doc_ids[:4]
+            results = await _run_comparison(
+                req.query, compare_ids, user, req
+            )
+            cmp_latency = int((time.perf_counter() - t_cmp) * 1000)
+            retrieve_ms = cmp_latency  # aggregated for analytics
+            generate_ms = cmp_latency
+
+            yield {
+                "event": "comparison",
+                "data": json.dumps(
+                    {"query": req.query, "columns": results}
+                ),
+            }
+
+            # Build a human-readable summary for the ChatTurn content
+            # field (used when the thread is replayed or summarised).
+            summary_lines = [f"Compared {len(results)} document(s):"]
+            for r in results:
+                label = _prettify_filename(r.get("filename", "") or "")
+                summary_lines.append(f"• {label} → {len(r.get('sources', []))} sources")
+            full_answer = "\n".join(summary_lines)
+            sources_json = json.dumps({"comparison": results})
+            answer_mode = "comparison"
+
+            # Persist turn + audit row directly here (we bypass the shared
+            # finally block because the cached-path state doesn't apply).
+            try:
+                models.append_turn(
+                    thread_id=thread_id,
+                    role="user",
+                    content=req.query,
+                )
+                models.append_turn(
+                    thread_id=thread_id,
+                    role="assistant",
+                    content=full_answer,
+                    sources_json=sources_json,
+                    refused=False,
+                    answer_mode=answer_mode,
+                    faithfulness=-1.0,
+                )
+                models.touch_thread(thread_id)
+                cited_doc_ids = sorted({r.get("doc_id", "") for r in results if r.get("doc_id")})
+                models.write_audit(
+                    models.AuditLog(
+                        user_id=user.id,
+                        username=user.username,
+                        user_level=user.level,
+                        query=req.query,
+                        refused=False,
+                        returned_chunks=sum(len(r.get("sources", [])) for r in results),
+                        allowed_doc_ids=",".join(cited_doc_ids),
+                        answer_mode=answer_mode,
+                        latency_retrieve_ms=retrieve_ms,
+                        latency_rerank_ms=0,
+                        latency_generate_ms=generate_ms,
+                        latency_total_ms=int((time.perf_counter() - t_total) * 1000),
+                        tokens_prompt=0,
+                        tokens_completion=0,
+                        cached=False,
+                        corrective_retries=0,
+                        faithfulness=-1.0,
+                    )
+                )
+            except Exception:
+                pass
+            yield {
+                "event": "done",
+                "data": json.dumps(
+                    {
+                        "ok": True,
+                        "answer_mode": answer_mode,
+                        "thread_id": thread_id,
+                        "cached": False,
+                        "latency_ms": {
+                            "retrieve": retrieve_ms,
+                            "rerank": 0,
+                            "generate": generate_ms,
+                            "total": int((time.perf_counter() - t_total) * 1000),
+                        },
+                        "tokens": {"prompt": 0, "completion": 0},
+                        "corrective_retries": 0,
+                        "faithfulness": -1.0,
+                        "confidence": None,
+                        "rbac_blocked": False,
+                        "citation_check": None,
+                    }
+                ),
+            }
+            return
+
         # ── Agent: apply preferred_doc_id before any retrieval ──────────
         # When the user clicks a doc in the disambiguation card, the
         # frontend sends the retry with preferred_doc_id set. We fold it
@@ -1247,9 +1470,19 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                     queries = await _multi_query(search_query)
                 else:
                     queries = [search_query]
+                # Tier 3.3 — if the query is recency-sensitive ("latest",
+                # "Q4 2024", etc.), ask retrieval to boost newer docs.
+                from src.pipelines.retrieval_pipeline import _is_recency_sensitive
+                prefer_recent = _is_recency_sensitive(search_query)
                 chunks, retrieve_ms = await _retrieve_multi(
-                    queries, user.level, req, caller_role=user.role
+                    queries, user.level, req, caller_role=user.role,
+                    prefer_recent=prefer_recent,
                 )
+                if prefer_recent:
+                    yield {
+                        "event": "recency_boost",
+                        "data": json.dumps({"applied": True, "query": search_query}),
+                    }
 
                 # Rerank already done inside retrieve; we expose the split only
                 # for observability. Approximation: generate_ms and rerank_ms

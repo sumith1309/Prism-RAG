@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { ArrowRight, Check, FileText, Sparkles } from "lucide-react";
+import { ArrowRight, Check, FileText, GitCompareArrows, Sparkles } from "lucide-react";
 
 import type { ChatMessage } from "@/types";
 import { cn } from "@/lib/utils";
@@ -9,13 +9,19 @@ import { cn } from "@/lib/utils";
  * the docs into one answer (the correctness bug), we pause and let the user
  * pick. Once picked, the card freezes: the chosen candidate turns green,
  * the others dim. Thread replay re-renders the frozen state.
+ *
+ * Tier 2.2 addition: a "Compare all" button next to the pick list that
+ * kicks off parallel retrieval+generation for every candidate and
+ * renders the answers side-by-side in a ComparisonCard.
  */
 export function DisambiguationCard({
   message,
   onPick,
+  onCompareAll,
 }: {
   message: ChatMessage;
   onPick: (docId: string, query: string, messageId: string) => void;
+  onCompareAll?: (docIds: string[], query: string, messageId: string) => void;
 }) {
   const d = message.disambiguation;
   if (!d || !d.candidates || d.candidates.length === 0) return null;
@@ -122,8 +128,26 @@ export function DisambiguationCard({
             </div>
 
             {!isFrozen && (
-              <div className="mt-3 text-[11px] text-fg-subtle">
-                Not sure? Tap the closest match — I'll answer strictly from that doc.
+              <div className="mt-3 flex items-center gap-3 flex-wrap">
+                <div className="text-[11px] text-fg-subtle flex-1 min-w-0">
+                  Not sure? Tap the closest match — I'll answer strictly from that doc.
+                </div>
+                {onCompareAll && d.candidates.length >= 2 && (
+                  <button
+                    onClick={() =>
+                      onCompareAll(
+                        d.candidates.map((c) => c.doc_id),
+                        query,
+                        message.id
+                      )
+                    }
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-accent/40 bg-white text-[11.5px] font-semibold text-accent hover:bg-accent hover:text-white transition-colors shrink-0"
+                    title="Generate a separate answer for each doc and show them side-by-side"
+                  >
+                    <GitCompareArrows className="w-3 h-3" strokeWidth={2.25} />
+                    Compare all
+                  </button>
+                )}
               </div>
             )}
           </div>

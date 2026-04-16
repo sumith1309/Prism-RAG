@@ -288,9 +288,22 @@ export interface ChatStreamRequest {
   //     DisambiguationCard; hard-scopes retrieval to that single doc.
   //   override_intent — user-edited query from the Intent Mirror pill.
   //   skip_disambiguation — bypass the ambiguity detector on this call.
+  //   compare_doc_ids — user clicked "Compare all" on a disambiguation
+  //     card; backend runs one retrieval+gen per doc in parallel.
   preferred_doc_id?: string | null;
   override_intent?: string | null;
   skip_disambiguation?: boolean;
+  compare_doc_ids?: string[];
+}
+
+export interface ComparisonColumn {
+  doc_id: string;
+  filename: string;
+  label: string;
+  answer: string;
+  sources: Source[];
+  ok: boolean;
+  error: string;
 }
 
 export interface DisambigCandidate {
@@ -352,6 +365,8 @@ export interface ChatStreamCallbacks {
   onDisambiguate?: (query: string, candidates: DisambigCandidate[], message: string) => void;
   onIntent?: (intent: string, original: string, edited: boolean) => void;
   onCitationCheck?: (check: CitationCheck) => void;
+  onComparison?: (query: string, columns: ComparisonColumn[]) => void;
+  onRecencyBoost?: () => void;
   onDone: (answerMode: string, thread_id: string, meta: DoneMeta) => void;
   onError: (message: string) => void;
 }
@@ -426,6 +441,12 @@ export async function streamChat(
           break;
         case "citation_check":
           callbacks.onCitationCheck?.(data as CitationCheck);
+          break;
+        case "comparison":
+          callbacks.onComparison?.(data.query || "", data.columns || []);
+          break;
+        case "recency_boost":
+          callbacks.onRecencyBoost?.();
           break;
         case "done":
           callbacks.onDone(data.answer_mode || "grounded", data.thread_id || "", {

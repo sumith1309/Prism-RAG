@@ -317,14 +317,34 @@ async def _multi_query(query: str) -> list[str]:
 
 # Markers that strongly suggest a user message depends on prior chat context.
 _FOLLOWUP_WORDS = {
+    # Pronouns + anaphora
     "it", "its", "they", "them", "their", "that", "this", "those", "these",
     "he", "she", "his", "her", "him", "also", "too",
+    # Elaboration/format-request verbs (2026-04-16, follow-up bug fix):
+    # "give N points", "list ...", "show the ...", "describe ...",
+    # "explain ...", "format as ...", "summarize", "break down", etc. are
+    # follow-ups in intent even when they don't start with a pronoun.
+    "give", "show", "list", "explain", "describe", "summarize", "summarise",
+    "expand", "format", "structure", "organize", "organise", "outline",
+    "rephrase", "rewrite", "reformat", "bullet", "bulletize", "break",
+    "simplify", "clarify",
 }
 _FOLLOWUP_PHRASES = (
     "tell me more", "more detail", "more details", "in more detail",
     "explain more", "explain in", "elaborate", "go deeper", "dive deeper",
     "and why", "and how", "why is that", "how so", "what about",
     "any more", "any other", "keep going", "continue",
+    # Format/structure asks (added 2026-04-16 follow-up-context fix).
+    # These never mention the topic directly — they depend on history for
+    # meaning. Without matching here, contextualize never fires and
+    # retrieval misses because "structured manner" isn't a topic keyword.
+    "structured", "structure it", "in a structured", "in points",
+    "as bullets", "in bullet", "bullet points", "as a list", "in a list",
+    "briefly", "in short", "in summary", "short version", "long version",
+    "with more detail", "more details", "in detail",
+    "points", " format", "format as", "format it",
+    "break down", "break it down", "step by step", "step-by-step",
+    "condense", "expand on", "same question",
 )
 
 
@@ -332,9 +352,15 @@ def _looks_like_followup(query: str) -> bool:
     """True if the query plausibly references prior conversation context.
 
     Fires on: short inputs (<=4 words), queries starting with an anaphoric
-    pronoun, or queries containing canonical follow-up phrases. This is a
+    pronoun OR elaboration/format verb, queries containing canonical
+    follow-up phrases, or any query <= 10 words that doesn't obviously
+    introduce a new topic (no proper noun-looking tokens). This is a
     *necessary* condition for running contextualization — we skip the LLM
     rewrite call on clearly self-contained questions to avoid latency.
+
+    The 10-word rule catches cases like "answer with more details and
+    structured manner" (7 words, topic-free) that were previously
+    falling through to retrieval with no keywords to match.
     """
     t = query.strip().lower().rstrip("?.! ")
     if not t:
@@ -345,7 +371,22 @@ def _looks_like_followup(query: str) -> bool:
     first = words[0]
     if first in _FOLLOWUP_WORDS:
         return True
-    return any(p in t for p in _FOLLOWUP_PHRASES)
+    if any(p in t for p in _FOLLOWUP_PHRASES):
+        return True
+    # Heuristic: short queries with no capitalised words in the ORIGINAL
+    # (pre-lowercase) input probably don't name a new topic, so they're
+    # leaning on conversation context. We check the original casing by
+    # looking at the caller's input before we lowercased it.
+    if len(words) <= 10:
+        original_tokens = query.strip().rstrip("?.!").split()
+        # If NO token except the first word starts with a capital letter,
+        # the query is almost certainly topic-less.
+        has_proper_noun = any(
+            tok[:1].isupper() for tok in original_tokens[1:]
+        )
+        if not has_proper_noun:
+            return True
+    return False
 
 
 def _budget_history(history, *, max_chars: int, max_turns: int) -> list:
@@ -1880,6 +1921,8 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
             ),
         }
 
+    return EventSourceResponse(event_generator())
+
 
 # ─── Access Request endpoint ────────────────────────────────────────────────
 # When a non-L4 user sees an "RBAC-blocked" unknown card and clicks
@@ -1932,5 +1975,3 @@ async def access_request(
         "ok": True,
         "message": f"Access request logged for {user.username}. A manager will review.",
     }
-
-    return EventSourceResponse(event_generator())

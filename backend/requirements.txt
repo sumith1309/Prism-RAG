@@ -24,3 +24,13 @@ huggingface-hub==0.25.2
 openai==1.51.0
 httpx==0.27.2
 numpy==1.26.4
+# Tier 2.1 — OCR fallback for scanned PDFs.
+# System deps: brew install tesseract poppler  (macOS)
+#              apt install tesseract-ocr poppler-utils  (Linux)
+pytesseract==0.3.13
+pdf2image==1.17.0
+# Tier 3.2 — optional Postgres support.
+# When DATABASE_URL is set in .env to a postgresql:// URL, the store
+# uses Postgres instead of the default SQLite file. psycopg driver
+# loaded lazily — SQLite-only installs don't need Postgres running.
+psycopg2-binary==2.9.9

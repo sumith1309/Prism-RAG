@@ -8,3 +8,29 @@ services:
     volumes:
       - ./.qdrant_storage:/qdrant/storage
     restart: unless-stopped
+
+  # Tier 3.2 — optional Postgres service. Disabled by default; run with:
+  #   docker compose -f homework-basic/docker-compose.yml --profile postgres up -d
+  # Then in backend/.env set:
+  #   DATABASE_URL=postgresql://prism:prism_pass@localhost:5433/prism
+  # And re-seed:  python -m entrypoint.seed --wipe
+  # The store auto-detects DATABASE_URL and switches engines; SQLite
+  # remains the default when DATABASE_URL is unset.
+  postgres:
+    image: postgres:16-alpine
+    container_name: rag_cli_postgres
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_USER: prism
+      POSTGRES_PASSWORD: prism_pass
+      POSTGRES_DB: prism
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./.postgres_storage:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prism -d prism"]
+      interval: 5s
+      timeout: 3s
+      retries: 5

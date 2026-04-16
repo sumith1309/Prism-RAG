@@ -5,11 +5,68 @@ from langchain_core.documents import Document as LCDocument
 from langchain_community.document_loaders import PyPDFLoader
 
 
+# Tier 2.1 — minimum chars per page below which we suspect a scanned PDF.
+# PyPDFLoader returns empty/near-empty page_content for image-only pages;
+# we kick those over to Tesseract via pdf2image for OCR.
+_OCR_MIN_CHARS_PER_PAGE = 40
+
+
+def _ocr_pdf(path: Path) -> list[LCDocument]:
+    """Run Tesseract OCR on each page of a PDF. Used as a fallback for
+    scanned/image-only PDFs where PyPDFLoader returns empty text. Slow
+    (~1-3s per page on CPU) but unavoidable for non-OCR'd scans.
+
+    Requires system: tesseract + poppler (brew install tesseract poppler).
+    Requires Python: pytesseract + pdf2image.
+    """
+    try:
+        import pytesseract
+        from pdf2image import convert_from_path
+    except ImportError:
+        return []
+
+    try:
+        # 200 DPI is the sweet spot — high enough for clean OCR on body
+        # text, low enough to keep each page render under ~1.5s on CPU.
+        images = convert_from_path(str(path), dpi=200)
+    except Exception:
+        return []
+
+    out: list[LCDocument] = []
+    for i, img in enumerate(images):
+        try:
+            text = pytesseract.image_to_string(img, lang="eng").strip()
+        except Exception:
+            text = ""
+        if text:
+            out.append(
+                LCDocument(
+                    page_content=text,
+                    metadata={"page": i + 1, "source": "ocr"},
+                )
+            )
+    return out
+
+
 def _load_pdf(path: Path) -> list[LCDocument]:
     docs = PyPDFLoader(str(path)).load()
     for d in docs:
         if "page" not in d.metadata:
             d.metadata["page"] = d.metadata.get("page_number", 0)
+
+    # Tier 2.1 — OCR fallback for scanned PDFs. If PyPDFLoader produced
+    # no docs OR the average page has < _OCR_MIN_CHARS_PER_PAGE of
+    # extracted text, the PDF is almost certainly an image-only scan.
+    # Re-process via Tesseract.
+    text_total = sum(len((d.page_content or "").strip()) for d in docs)
+    needs_ocr = (
+        not docs
+        or (docs and text_total / max(len(docs), 1) < _OCR_MIN_CHARS_PER_PAGE)
+    )
+    if needs_ocr:
+        ocr_docs = _ocr_pdf(path)
+        if ocr_docs:
+            return ocr_docs
     return docs
 
 

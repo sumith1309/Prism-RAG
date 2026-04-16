@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -30,49 +31,116 @@ class Document(SQLModel, table=True):
 _engine = None
 
 
+def _is_sqlite(engine) -> bool:
+    """Detect engine dialect. Postgres and SQLite differ in how we
+    add columns to existing tables, so `_migrate_columns` branches on
+    this. Returns True for SQLite, False for Postgres (and anything
+    else SQLAlchemy supports)."""
+    try:
+        return engine.dialect.name == "sqlite"
+    except Exception:
+        return True  # safe default for demo
+
+
 def _migrate_columns(engine) -> None:
-    """SQLite can't add columns via SQLModel.metadata.create_all on an
-    existing table, so we manually ALTER TABLE for new fields. Safe to
-    run repeatedly — skips columns that already exist."""
+    """Lightweight forward-only migration. SQLite can't add columns via
+    SQLModel.metadata.create_all on an existing table, so we manually
+    ALTER TABLE for new fields. Safe to run repeatedly — skips columns
+    that already exist. For Postgres production deployments, this is
+    superseded by proper Alembic migrations (see
+    ``backend/alembic/`` when added).
+    """
+    sqlite = _is_sqlite(engine)
     with engine.begin() as conn:
         from sqlalchemy import text
 
+        # Helper — list existing columns for a table, dialect-aware.
+        def existing_columns(table: str) -> set[str]:
+            if sqlite:
+                rows = conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
+                return {row[1] for row in rows}
+            # Postgres — information_schema.
+            rows = conn.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_name = :t"
+                ),
+                {"t": table.lower()},
+            ).fetchall()
+            return {row[0] for row in rows}
+
         # Document table — uploader identity + per-role visibility kill-switch.
-        cols = {
-            row[1]
-            for row in conn.execute(text("PRAGMA table_info(document)")).fetchall()
-        }
-        for name, ddl in (
-            ("uploaded_by_username", "TEXT NOT NULL DEFAULT ''"),
-            ("uploaded_by_role", "TEXT NOT NULL DEFAULT ''"),
-            ("disabled_for_roles", "TEXT NOT NULL DEFAULT ''"),
+        cols = existing_columns("document")
+        for name, sqlite_ddl, pg_ddl in (
+            (
+                "uploaded_by_username",
+                "TEXT NOT NULL DEFAULT ''",
+                "TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "uploaded_by_role",
+                "TEXT NOT NULL DEFAULT ''",
+                "TEXT NOT NULL DEFAULT ''",
+            ),
+            (
+                "disabled_for_roles",
+                "TEXT NOT NULL DEFAULT ''",
+                "TEXT NOT NULL DEFAULT ''",
+            ),
         ):
             if name not in cols:
+                ddl = sqlite_ddl if sqlite else pg_ddl
                 conn.execute(text(f"ALTER TABLE document ADD COLUMN {name} {ddl}"))
 
-        # ChatTurn table — per-turn faithfulness for graph replay + rings.
-        cols = {
-            row[1]
-            for row in conn.execute(text("PRAGMA table_info(chatturn)")).fetchall()
-        }
-        for name, ddl in (
-            ("faithfulness", "REAL NOT NULL DEFAULT -1.0"),
+        # ChatTurn table — per-turn faithfulness.
+        cols = existing_columns("chatturn")
+        for name, sqlite_ddl, pg_ddl in (
+            (
+                "faithfulness",
+                "REAL NOT NULL DEFAULT -1.0",
+                "DOUBLE PRECISION NOT NULL DEFAULT -1.0",
+            ),
         ):
             if name not in cols:
+                ddl = sqlite_ddl if sqlite else pg_ddl
                 conn.execute(text(f"ALTER TABLE chatturn ADD COLUMN {name} {ddl}"))
 
 
 def _get_engine():
+    """Engine factory. Reads ``DATABASE_URL`` env var first — if set to a
+    Postgres URL like ``postgresql://user:pass@host:5432/dbname``, uses
+    Postgres. Otherwise falls back to the local SQLite file at
+    ``settings.REGISTRY_DB``. The SQLite path is the zero-config demo
+    default; Postgres is the production path.
+
+    Tier 3.2 design note: we DON'T try to auto-migrate data from SQLite
+    to Postgres — swapping engines requires running `seed.py --wipe`
+    against the new DB. For real data migration, use `pg_dump` from
+    SQLite (via `sqlite3 ... .dump | sed ... | psql ...`) or a dedicated
+    ETL tool.
+    """
     global _engine
-    if _engine is None:
+    if _engine is not None:
+        return _engine
+
+    url = os.environ.get("DATABASE_URL", "").strip()
+    if url:
+        # Postgres (or any SQLAlchemy-supported URL)
+        if url.startswith("postgres://"):
+            # Heroku/Railway historically emit postgres://; SQLAlchemy
+            # wants postgresql://. Normalize so copy-paste URLs work.
+            url = "postgresql://" + url[len("postgres://"):]
+        _engine = create_engine(url, echo=False, pool_pre_ping=True)
+    else:
         db_path = settings.abs(settings.REGISTRY_DB)
         db_path.parent.mkdir(parents=True, exist_ok=True)
         _engine = create_engine(f"sqlite:///{db_path}", echo=False)
-        # Register User + AuditLog tables (declared in models.py) before create_all
-        # so the seed script can write to them on first run.
-        from src.core import models  # noqa: F401
-        SQLModel.metadata.create_all(_engine)
-        _migrate_columns(_engine)
+
+    # Register User + AuditLog tables (declared in models.py) before create_all
+    # so the seed script can write to them on first run.
+    from src.core import models  # noqa: F401
+    SQLModel.metadata.create_all(_engine)
+    _migrate_columns(_engine)
     return _engine
 
 

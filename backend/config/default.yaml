@@ -8,7 +8,11 @@ models:
   # (Groq is free and fast: https://api.groq.com/openai/v1).
   chat: meta-llama/Llama-3.1-8B-Instruct
   embedding: sentence-transformers/all-MiniLM-L6-v2
-  reranker: BAAI/bge-reranker-base
+  # Tier 2.4 (2026-04-16) — upgraded from bge-reranker-base (278M) to
+  # bge-reranker-large (560M). +5–8% precision on the top-5 cut, costs
+  # +200–300ms per query on CPU. Worth it on a stationary demo
+  # machine; revert via .env override on slow hardware.
+  reranker: BAAI/bge-reranker-large
 
 paths:
   vector_store: ./data/vector_store

@@ -5,6 +5,7 @@ import { HelpCircle, Info, ShieldAlert, Sparkles, User } from "lucide-react";
 import type { ChatMessage } from "@/types";
 import { cn } from "@/lib/utils";
 import { AccessRequestBanner } from "./AccessRequestBanner";
+import { CitationCheckChip } from "./CitationCheckChip";
 import { ConfidenceChip } from "./ConfidenceChip";
 import { DisambiguationCard } from "./DisambiguationCard";
 import { IntentMirror } from "./IntentMirror";
@@ -209,18 +210,23 @@ export function MessageBubble({
             />
           )}
 
-          {typeof message.confidence === "number" &&
-            !message.streaming &&
-            (message.answerMode === "grounded" || message.answerMode === "general") && (
-              <div className="flex items-center gap-2">
-                <ConfidenceChip
-                  value={message.confidence}
-                  onBroaden={
-                    message.confidence < 60
-                      ? () => onBroaden?.(message.id)
-                      : undefined
-                  }
-                />
+          {!message.streaming &&
+            (message.answerMode === "grounded" || message.answerMode === "general") &&
+            (typeof message.confidence === "number" || message.citationCheck) && (
+              <div className="flex items-center gap-2 flex-wrap">
+                {typeof message.confidence === "number" && (
+                  <ConfidenceChip
+                    value={message.confidence}
+                    onBroaden={
+                      message.confidence < 60
+                        ? () => onBroaden?.(message.id)
+                        : undefined
+                    }
+                  />
+                )}
+                {message.citationCheck && (
+                  <CitationCheckChip check={message.citationCheck} />
+                )}
               </div>
             )}
 

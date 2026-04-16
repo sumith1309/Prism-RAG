@@ -247,6 +247,28 @@ export async function fetchSuggestedQuestions(docId: string): Promise<string[]> 
   return data.questions || [];
 }
 
+export interface AutoClassifyResult {
+  suggested_level: number;
+  suggested_label: string;
+  reason: string;
+  confidence: number;
+  capped_to_user_level: boolean;
+}
+
+export async function autoClassifyDocument(
+  file: File
+): Promise<AutoClassifyResult | null> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch(`${API_BASE}/api/documents/auto-classify`, {
+    method: "POST",
+    body: fd,
+    headers: { ...authHeaders() },
+  });
+  if (!res.ok) return null;
+  return await res.json();
+}
+
 // ── Streaming chat ──────────────────────────────────────────────────────────
 
 export interface ChatStreamRequest {
@@ -288,6 +310,15 @@ export interface DoneMeta {
   faithfulness?: number;
   confidence?: number | null; // 0..100 composite, null on non-grounded modes
   rbac_blocked?: boolean; // true when unknown/refused was RBAC-triggered
+  citation_check?: CitationCheck | null;
+}
+
+export interface CitationCheck {
+  total: number;
+  valid: number;
+  fabricated: number[]; // [Source N] tags pointing to non-existent chunks
+  weak: number[]; // cited but no substantive word overlap with chunk text
+  score: number; // valid / total
 }
 
 export async function requestAccess(
@@ -320,6 +351,7 @@ export interface ChatStreamCallbacks {
   // Agent events:
   onDisambiguate?: (query: string, candidates: DisambigCandidate[], message: string) => void;
   onIntent?: (intent: string, original: string, edited: boolean) => void;
+  onCitationCheck?: (check: CitationCheck) => void;
   onDone: (answerMode: string, thread_id: string, meta: DoneMeta) => void;
   onError: (message: string) => void;
 }
@@ -392,6 +424,9 @@ export async function streamChat(
             !!data.edited
           );
           break;
+        case "citation_check":
+          callbacks.onCitationCheck?.(data as CitationCheck);
+          break;
         case "done":
           callbacks.onDone(data.answer_mode || "grounded", data.thread_id || "", {
             latency_ms: data.latency_ms,
@@ -400,6 +435,8 @@ export async function streamChat(
             corrective_retries: data.corrective_retries,
             faithfulness: data.faithfulness,
             confidence: data.confidence ?? null,
+            rbac_blocked: !!data.rbac_blocked,
+            citation_check: data.citation_check ?? null,
           });
           break;
         case "error":

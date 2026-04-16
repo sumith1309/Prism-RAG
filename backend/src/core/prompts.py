@@ -145,3 +145,19 @@ INTENT_CLASSIFY_PROMPT = (
     "User query: {query}\n\n"
     "Restatement:"
 )
+
+
+DOC_CLASSIFY_PROMPT = (
+    "You are a corporate document classifier. Read the document excerpt and "
+    "filename, then assign a clearance level using these rules:\n\n"
+    "  1 PUBLIC       — anyone can read. Training, public handbooks, marketing.\n"
+    "  2 INTERNAL     — employees+. IT runbooks, internal policies, eng docs.\n"
+    "  3 CONFIDENTIAL — managers+. Q4 financials, roadmap, vendor contracts.\n"
+    "  4 RESTRICTED   — executives only. Salary bands, board minutes, security incidents, M&A, layoffs.\n\n"
+    "Return STRICT JSON with three keys, no commentary, no markdown fence:\n"
+    '  {{"level": 1|2|3|4, "reason": "<one short sentence>", "confidence": 0.0-1.0}}\n\n'
+    "When in doubt, classify CONSERVATIVELY (higher level). A wrong PUBLIC tag "
+    "leaks data; a wrong RESTRICTED tag just makes one more access request.\n\n"
+    "Filename: {filename}\n\n"
+    "First 1500 chars of the document:\n{excerpt}\n\nJSON:"
+)

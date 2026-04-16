@@ -63,6 +63,15 @@ export interface ChatMessage {
   // clearance doc matched). Swaps the bland "no answer" card for the
   // richer "request access" card on the frontend.
   rbacBlocked?: boolean;
+  // Tier 1.1: post-generation citation verification result. Populated
+  // for grounded answers. Counts fabricated/weak [Source N] tags.
+  citationCheck?: {
+    total: number;
+    valid: number;
+    fabricated: number[];
+    weak: number[];
+    score: number;
+  } | null;
   corrective_rewrite?: string;
   contextualized_query?: string;
   welcome?: WelcomePayload;

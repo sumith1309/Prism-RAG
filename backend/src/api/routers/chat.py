@@ -16,6 +16,7 @@ Pipeline per request:
 
 import asyncio
 import json
+import re
 import time
 
 from fastapi import APIRouter, Depends
@@ -490,6 +491,95 @@ def _compute_confidence(
     else:
         blended = top  # retrieval-only
     return max(5, min(100, int(round(blended * 100))))
+
+
+_CITATION_PATTERN = re.compile(r"\[Source\s+(\d+)\]", re.IGNORECASE)
+
+
+def _verify_citations(answer: str, chunks) -> dict:
+    """Verify every [Source N] tag in the answer points to a real chunk
+    AND that the surrounding sentence has at least one substantive word
+    overlap with that chunk's text.
+
+    Returns:
+      {
+        "total": int,                 # how many [Source N] tags appeared
+        "valid": int,                 # how many resolved to a real chunk
+        "fabricated": list[int],      # source numbers cited but not in chunks
+        "weak": list[int],            # cited but no meaningful word overlap
+        "score": float,               # valid / max(total, 1)
+      }
+
+    This catches two failure modes:
+      1. The LLM cites [Source 7] when only sources 1-5 exist.
+      2. The LLM cites [Source 3] but the sentence has no overlap with
+         chunk 3's actual text — usually means the model picked the
+         citation arbitrarily after generating the claim.
+    """
+    if not answer.strip():
+        return {"total": 0, "valid": 0, "fabricated": [], "weak": [], "score": 1.0}
+
+    # Build a quick index from source_index → chunk text (lowercased).
+    chunk_text_by_idx: dict[int, str] = {}
+    for c in chunks:
+        if c.source_index and c.text:
+            chunk_text_by_idx[c.source_index] = c.text.lower()
+
+    # For each citation, check the surrounding sentence's overlap with
+    # the cited chunk's text. We split on sentence-ish boundaries and
+    # find the sentence containing the citation tag.
+    sentences = re.split(r"(?<=[.!?])\s+", answer)
+    fabricated: list[int] = []
+    weak: list[int] = []
+    valid = 0
+    total = 0
+
+    seen_per_sentence: list[tuple[str, set[int]]] = []
+    for s in sentences:
+        cites = {int(m.group(1)) for m in _CITATION_PATTERN.finditer(s)}
+        if cites:
+            seen_per_sentence.append((s, cites))
+
+    # Common stopwords — we ignore these when checking overlap so a
+    # one-word match like "the" doesn't count.
+    _STOP = {
+        "the", "a", "an", "is", "are", "was", "were", "of", "to", "in",
+        "for", "on", "and", "or", "but", "with", "by", "from", "as",
+        "this", "that", "these", "those", "it", "its", "be", "have",
+        "has", "had", "do", "does", "did", "will", "would", "should",
+        "can", "could", "may", "might", "must", "not", "no", "yes",
+        "you", "your", "we", "our", "they", "their", "he", "she",
+        "his", "her", "me", "my", "i",
+    }
+
+    for sentence, citations_in_sentence in seen_per_sentence:
+        sentence_words = {
+            w for w in re.findall(r"[a-z0-9]+", sentence.lower())
+            if w not in _STOP and len(w) >= 3
+        }
+        for src_num in citations_in_sentence:
+            total += 1
+            chunk_text = chunk_text_by_idx.get(src_num)
+            if chunk_text is None:
+                fabricated.append(src_num)
+                continue
+            chunk_words = {
+                w for w in re.findall(r"[a-z0-9]+", chunk_text)
+                if w not in _STOP and len(w) >= 3
+            }
+            overlap = sentence_words & chunk_words
+            if len(overlap) < 2:  # need ≥2 substantive words shared
+                weak.append(src_num)
+            else:
+                valid += 1
+
+    return {
+        "total": total,
+        "valid": valid,
+        "fabricated": sorted(set(fabricated)),
+        "weak": sorted(set(weak)),
+        "score": round(valid / max(total, 1), 3),
+    }
 
 
 async def _faithfulness_score(answer: str, chunks) -> float:
@@ -1076,6 +1166,9 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
         # forcing `unknown` (non-L4) or `refused` (L4). Lets the frontend
         # swap the bland "no answer" card for a "request access" card.
         rbac_blocked = False
+        # Citation verification result (Tier 1.1). Populated post-stream
+        # for grounded answers. None on non-grounded modes.
+        citation_check: dict | None = None
 
         try:
             if cached is not None:
@@ -1375,6 +1468,22 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                 if req.use_faithfulness and answer_mode == "grounded" and full_answer.strip():
                     faithfulness = await _faithfulness_score(full_answer, chunks)
 
+                # ── 8a. Citation verification (NEW — Tier 1.1) ──────────
+                # Catch fabricated [Source N] tags (numbers that don't
+                # match any actual chunk) AND weak overlaps (cited but
+                # the sentence shares no substantive words with chunk).
+                # Cheap (regex + set ops, no LLM call). Always-on for
+                # grounded answers — the user gets a visible warning chip
+                # if anything's off.
+                citation_check: dict | None = None
+                if answer_mode == "grounded" and full_answer.strip() and chunks:
+                    citation_check = _verify_citations(full_answer, chunks)
+                    if citation_check["fabricated"] or citation_check["weak"]:
+                        yield {
+                            "event": "citation_check",
+                            "data": json.dumps(citation_check),
+                        }
+
                 # ── 8b. Post-hoc demotion: grounded → (general | unknown)
                 # when the LLM itself refused on retrieved chunks. The
                 # demotion mirrors the primary mode classifier: bypass
@@ -1533,6 +1642,7 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                     "faithfulness": faithfulness,
                     "confidence": confidence,
                     "rbac_blocked": rbac_blocked,
+                    "citation_check": citation_check,
                 }
             ),
         }

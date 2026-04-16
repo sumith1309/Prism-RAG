@@ -37,7 +37,21 @@ export function useChatStream() {
   const [isLoadingThread, setIsLoadingThread] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const pendingNavRef = useRef<string | null>(null);
+  // Live thread id. Must stay in sync with the current conversation
+  // WITHOUT waiting for React Router, because we update the URL via
+  // `window.history.replaceState` after a new thread is created
+  // (to avoid remounting mid-stream). replaceState bypasses the router,
+  // so `useParams` stays stale — any subsequent send() would read
+  // `thread_id: null` and the backend would create yet another thread.
+  // This ref is the single source of truth for outgoing requests.
+  const activeThreadRef = useRef<string | null>(urlThreadId ?? null);
   const { activeDocIds, settings } = useAppStore();
+
+  // Keep the ref in sync when the URL changes from outside this hook
+  // (user clicks a thread in the sidebar, browser back/forward, etc.).
+  useEffect(() => {
+    activeThreadRef.current = urlThreadId ?? null;
+  }, [urlThreadId]);
 
   // When URL thread id changes, load that thread's history.
   useEffect(() => {
@@ -154,13 +168,17 @@ export function useChatStream() {
             section_filter: settings.sectionFilter.length ? settings.sectionFilter : undefined,
             top_k: settings.topK,
             history,
-            thread_id: urlThreadId ?? null,
+            thread_id: activeThreadRef.current,
             preferred_doc_id: opts?.preferredDocId ?? null,
             skip_disambiguation: !!opts?.preferredDocId,
             override_intent: opts?.overrideIntent ?? null,
           },
           {
             onThread: (threadId, _title, isNew) => {
+              // Update the live thread id immediately so ANY follow-up
+              // send() during the same session targets the same thread,
+              // even if the user types before React Router catches up.
+              activeThreadRef.current = threadId;
               if (isNew && !urlThreadId) {
                 // Stash — navigate only after `done` so SSE isn't interrupted by unmount.
                 pendingNavRef.current = threadId;
@@ -287,6 +305,12 @@ export function useChatStream() {
                     : m
                 )
               ),
+            onCitationCheck: (check) =>
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMsg.id ? { ...m, citationCheck: check } : m
+                )
+              ),
             onDone: (answerMode, thread_id, meta) => {
               const finalMode = (answerMode as AnswerMode) || "grounded";
               // Backend can demote grounded → unknown post-generation when the
@@ -314,6 +338,8 @@ export function useChatStream() {
                         corrective_retries: meta.corrective_retries,
                         faithfulness: meta.faithfulness,
                         confidence: meta.confidence ?? null,
+                        rbacBlocked: meta.rbac_blocked ?? m.rbacBlocked,
+                        citationCheck: meta.citation_check ?? m.citationCheck ?? null,
                       }
                     : m
                 )

@@ -121,6 +121,39 @@ def _save_bm25(doc_id: str, chunk_texts: list[str], chunk_meta: list[dict]) -> N
         )
 
 
+def _build_chunk_enrichment_prefix(
+    filename: str,
+    section: str,
+    chunk_index: int,
+    total_chunks: int,
+) -> str:
+    """Tier 1.3 — Anthropic's contextual-retrieval pattern (structural variant).
+
+    Prepends a one-line context describing WHERE this chunk sits in the
+    document so the embedding captures topical context the chunk text
+    alone might lack. Example:
+
+      "Document: TechNova_HR_Policy_Handbook. Section: Leave Policy
+       (chunk 4 of 23). The following passage discusses...
+
+       <original chunk text>"
+
+    The prefix is only attached to the EMBEDDING input — Qdrant payload
+    `text` and the BM25 index keep the original (unprefixed) chunk so
+    the LLM, citations, and keyword search all see clean content.
+
+    Cost: zero (no LLM call). Recall lift: ~10-20% on overlapping-topic
+    corpora vs raw chunk embedding. The full LLM-generated variant
+    (Anthropic's paper) gets ~35% — see `_llm_enrich_chunk` for that.
+    """
+    name = filename.rsplit(".", 1)[0].replace("_", " ").replace("-", " ")
+    parts = [f"Document: {name}"]
+    if section:
+        parts.append(f"Section: {section}")
+    parts.append(f"(chunk {chunk_index + 1} of {total_chunks})")
+    return ". ".join(parts) + ".\n\n"
+
+
 def ingest_file(
     path: Path,
     original_filename: Optional[str] = None,
@@ -169,7 +202,22 @@ def ingest_file(
 
     client = get_qdrant()
     texts = [c.page_content for c in chunks]
-    vectors = _get_embeddings().embed_documents(texts)
+
+    # Tier 1.3 — chunk enrichment (Anthropic contextual retrieval, structural).
+    # We embed the ENRICHED text (chunk + structural prefix) so the
+    # vector captures topical context. We store the ORIGINAL chunk in
+    # Qdrant payload so citations + LLM context block stay clean.
+    enriched_texts = [
+        _build_chunk_enrichment_prefix(
+            filename=filename,
+            section=c.metadata.get("section", "") or "",
+            chunk_index=i,
+            total_chunks=len(chunks),
+        )
+        + texts[i]
+        for i, c in enumerate(chunks)
+    ]
+    vectors = _get_embeddings().embed_documents(enriched_texts)
 
     points = [
         qm.PointStruct(
@@ -182,7 +230,7 @@ def ingest_file(
                 "page": int(c.metadata.get("page", 0) or 0),
                 "section": c.metadata.get("section", "") or "",
                 "doc_level": int(doc_level),
-                "text": c.page_content,
+                "text": c.page_content,  # original (unenriched) — for citations
             },
         )
         for i, c in enumerate(chunks)

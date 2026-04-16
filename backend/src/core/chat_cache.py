@@ -73,3 +73,40 @@ def stats() -> dict[str, Any]:
 def clear() -> None:
     with _lock:
         _cache.clear()
+
+
+def bust_for_doc(doc_id: str) -> int:
+    """Remove cached entries whose stored response cited ``doc_id``.
+
+    Called from /documents PATCH visibility and /documents DELETE so a
+    reclassified or removed document never replays a stale answer that
+    includes its (now-different-clearance / now-deleted) content. Pure
+    correctness fix — without this, a guest could see a cached answer
+    from before exec promoted a doc to RESTRICTED.
+
+    Returns the number of cache entries removed.
+    """
+    if not doc_id:
+        return 0
+    removed = 0
+    with _lock:
+        keys_to_remove = []
+        for k, (_, value) in _cache.items():
+            cited = value.get("cited_doc_ids") or []
+            if doc_id in cited:
+                keys_to_remove.append(k)
+        for k in keys_to_remove:
+            _cache.pop(k, None)
+            removed += 1
+    return removed
+
+
+def bust_all() -> int:
+    """Nuclear option — drop everything. Used when the change is
+    corpus-wide (e.g., re-ingestion, mass delete) and per-doc busting
+    would be slower than just clearing.
+    """
+    with _lock:
+        n = len(_cache)
+        _cache.clear()
+        return n

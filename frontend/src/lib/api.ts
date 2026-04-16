@@ -261,6 +261,23 @@ export interface ChatStreamRequest {
   top_k: number;
   history: { role: "user" | "assistant"; content: string }[];
   thread_id?: string | null;
+  // Agent controls (added 2026-04-16):
+  //   preferred_doc_id — set when user picked a doc from the
+  //     DisambiguationCard; hard-scopes retrieval to that single doc.
+  //   override_intent — user-edited query from the Intent Mirror pill.
+  //   skip_disambiguation — bypass the ambiguity detector on this call.
+  preferred_doc_id?: string | null;
+  override_intent?: string | null;
+  skip_disambiguation?: boolean;
+}
+
+export interface DisambigCandidate {
+  doc_id: string;
+  filename: string;
+  label: string;
+  hint: string;
+  top_score: number;
+  chunk_count: number;
 }
 
 export interface DoneMeta {
@@ -269,20 +286,40 @@ export interface DoneMeta {
   cached?: boolean;
   corrective_retries?: number;
   faithfulness?: number;
+  confidence?: number | null; // 0..100 composite, null on non-grounded modes
+  rbac_blocked?: boolean; // true when unknown/refused was RBAC-triggered
+}
+
+export async function requestAccess(
+  query: string,
+  reason?: string
+): Promise<{ ok: boolean; message: string }> {
+  const res = await authFetch(`${API_BASE}/api/access-request`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query, reason }),
+  });
+  if (!res.ok) {
+    return { ok: false, message: `Request failed: ${res.status}` };
+  }
+  return await res.json();
 }
 
 export interface ChatStreamCallbacks {
   onThread: (thread_id: string, title: string, isNew: boolean) => void;
   onSources: (sources: Source[]) => void;
   onToken: (delta: string) => void;
-  onRefused: (message: string) => void;
+  onRefused: (message: string, rbacBlocked: boolean) => void;
   onGeneral: (message: string) => void;
-  onUnknown: (message: string) => void;
+  onUnknown: (message: string, rbacBlocked: boolean) => void;
   onCached: () => void;
   onCorrective: (rewritten: string, original: string) => void;
   onContextualized: (rewritten: string, original: string) => void;
   onAnswerReset: () => void;
   onWelcome: (payload: WelcomePayload) => void;
+  // Agent events:
+  onDisambiguate?: (query: string, candidates: DisambigCandidate[], message: string) => void;
+  onIntent?: (intent: string, original: string, edited: boolean) => void;
   onDone: (answerMode: string, thread_id: string, meta: DoneMeta) => void;
   onError: (message: string) => void;
 }
@@ -315,13 +352,16 @@ export async function streamChat(
           if (data.delta) callbacks.onToken(data.delta);
           break;
         case "refused":
-          callbacks.onRefused(data.message || "Access refused.");
+          callbacks.onRefused(data.message || "Access refused.", !!data.rbac_blocked);
           break;
         case "general_mode":
           callbacks.onGeneral(data.message || "General knowledge.");
           break;
         case "unknown":
-          callbacks.onUnknown(data.message || "I don't have a confident answer.");
+          callbacks.onUnknown(
+            data.message || "I don't have a confident answer.",
+            !!data.rbac_blocked
+          );
           break;
         case "cached":
           callbacks.onCached();
@@ -338,6 +378,20 @@ export async function streamChat(
         case "welcome":
           callbacks.onWelcome(data as WelcomePayload);
           break;
+        case "disambiguate":
+          callbacks.onDisambiguate?.(
+            data.query || "",
+            data.candidates || [],
+            data.message || ""
+          );
+          break;
+        case "intent":
+          callbacks.onIntent?.(
+            data.intent || "",
+            data.original || "",
+            !!data.edited
+          );
+          break;
         case "done":
           callbacks.onDone(data.answer_mode || "grounded", data.thread_id || "", {
             latency_ms: data.latency_ms,
@@ -345,6 +399,7 @@ export async function streamChat(
             cached: data.cached,
             corrective_retries: data.corrective_retries,
             faithfulness: data.faithfulness,
+            confidence: data.confidence ?? null,
           });
           break;
         case "error":

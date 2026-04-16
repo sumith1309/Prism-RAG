@@ -28,6 +28,7 @@ from sse_starlette.sse import EventSourceResponse
 from src.config import settings
 from src.core.prompts import (
     FAITHFULNESS_PROMPT,
+    GENERAL_SYSTEM_PROMPT,
     SYSTEM_PROMPT,
     build_context_block,
     build_user_prompt,
@@ -218,6 +219,26 @@ async def playground_retrieve(req: PlaygroundRequest, request: Request):
 # ---------------------------------------------------------------------------
 # Public Pipeline Lab — full system showcase
 # ---------------------------------------------------------------------------
+
+# Same refusal-phrase detector the authenticated /api/chat uses. Short
+# answers that match one of these trigger the general-knowledge fallback
+# so the Pipeline Lab never dead-ends on "I could not find this…".
+_REFUSAL_PHRASES = (
+    "could not find", "cannot find", "can't find", "couldn't find",
+    "not mentioned", "not in the provided", "not available in the provided",
+    "no information", "isn't mentioned", "is not mentioned",
+    "don't have information", "do not have information",
+    "not found in the", "does not contain", "doesn't contain",
+)
+
+
+def _looks_like_refusal(text: str) -> bool:
+    if not text:
+        return False
+    t = text.strip().lower()
+    if len(t) > 400:
+        return False
+    return any(p in t for p in _REFUSAL_PHRASES)
 # These two endpoints power the public /pipeline learning surface: anyone
 # (no auth) can paste a query and watch the entire RAG pipeline execute
 # against the FULL corpus (executive-level visibility — every doc is in
@@ -408,6 +429,7 @@ async def playground_inspect(req: InspectRequest, request: Request):
 
         full_answer = ""
         gen_ms = 0
+        fallback_to_general = False
         if gen_chunks:
             t0 = time.time()
             messages = [
@@ -425,9 +447,49 @@ async def playground_inspect(req: InspectRequest, request: Request):
                 yield {"event": "error", "data": json.dumps({"message": str(e)})}
             gen_ms = int((time.time() - t0) * 1000)
 
+            # Mirror the refusal-demotion from /api/chat: if the LLM looked
+            # at the retrieved chunks and returned a short refusal like "I
+            # could not find this", wipe the partial answer and re-stream
+            # with the general-knowledge prompt so the visitor actually
+            # gets a useful response.
+            if _looks_like_refusal(full_answer):
+                fallback_to_general = True
+                yield {"event": "answer_reset", "data": "{}"}
+                full_answer = ""
+                t0 = time.time()
+                gen_messages = [
+                    {"role": "system", "content": GENERAL_SYSTEM_PROMPT},
+                    {"role": "user", "content": req.query},
+                ]
+                try:
+                    async for delta in _stream_chat(gen_messages, max_tokens=500, temperature=0.4):
+                        full_answer += delta
+                        yield {"event": "token", "data": json.dumps({"delta": delta})}
+                except Exception as e:
+                    yield {"event": "error", "data": json.dumps({"message": str(e)})}
+                gen_ms += int((time.time() - t0) * 1000)
+        else:
+            # No gen_chunks → retrieval found nothing. Fall straight to
+            # general knowledge (no source panel; clearly off-corpus).
+            fallback_to_general = True
+            t0 = time.time()
+            gen_messages = [
+                {"role": "system", "content": GENERAL_SYSTEM_PROMPT},
+                {"role": "user", "content": req.query},
+            ]
+            try:
+                async for delta in _stream_chat(gen_messages, max_tokens=500, temperature=0.4):
+                    full_answer += delta
+                    yield {"event": "token", "data": json.dumps({"delta": delta})}
+            except Exception as e:
+                yield {"event": "error", "data": json.dumps({"message": str(e)})}
+            gen_ms = int((time.time() - t0) * 1000)
+
         # ── Stage 7: Faithfulness ─────────────────────────────────────
+        # Skip when we fell back to general mode — general answers aren't
+        # expected to be source-grounded so judging them would mislead.
         faith = -1.0
-        if gen_chunks and full_answer.strip():
+        if gen_chunks and full_answer.strip() and not fallback_to_general:
             srcs = "\n\n".join(
                 f"[Source {c.source_index}] {c.text[:600]}" for c in gen_chunks[:5]
             )
@@ -472,12 +534,15 @@ async def playground_inspect(req: InspectRequest, request: Request):
             if _os.environ.get("LLM_BASE_URL")
             else settings.HF_CHAT_MODEL
         ) or "unknown"
+        # If we fell back to general, reflect that in the final mode so
+        # the frontend banner reads "general" not "grounded".
+        final_mode = "general" if fallback_to_general else ("grounded" if gen_chunks else "unknown")
         yield {
             "event": "done",
             "data": json.dumps(
                 {
                     "ok": True,
-                    "answer_mode": "grounded" if gen_chunks else "unknown",
+                    "answer_mode": final_mode,
                     "faithfulness": faith,
                     "models": {
                         "embed": settings.EMBED_MODEL,

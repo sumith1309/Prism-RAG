@@ -7,7 +7,6 @@ import { SignInPage } from "./pages/SignInPage";
 import { ChatPage } from "./pages/ChatPage";
 import { AuditLogPage } from "./pages/AuditLogPage";
 import { AnalyticsPage } from "./pages/AnalyticsPage";
-import { GraphPage } from "./pages/GraphPage";
 import { PipelinePage } from "./pages/PipelinePage";
 import { useAppStore } from "./store/appStore";
 import { fetchMe } from "./lib/api";
@@ -67,15 +66,6 @@ function AnalyticsShell() {
   );
 }
 
-function GraphShell() {
-  return (
-    <div className="flex-1 flex flex-col min-w-0">
-      <Header onOpenSettings={() => {}} onClearChat={() => {}} />
-      <GraphPage />
-    </div>
-  );
-}
-
 export default function App() {
   useBootAuth();
   useGlobalLightTheme();
@@ -92,7 +82,6 @@ export default function App() {
         <Route path="t/:threadId" element={<ChatShell />} />
         <Route path="audit" element={<AuditShell />} />
         <Route path="analytics" element={<AnalyticsShell />} />
-        <Route path="graph" element={<GraphShell />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -4,16 +4,28 @@ import { motion } from "framer-motion";
 import { HelpCircle, Info, ShieldAlert, Sparkles, User } from "lucide-react";
 import type { ChatMessage } from "@/types";
 import { cn } from "@/lib/utils";
+import { AccessRequestBanner } from "./AccessRequestBanner";
+import { ConfidenceChip } from "./ConfidenceChip";
+import { DisambiguationCard } from "./DisambiguationCard";
+import { IntentMirror } from "./IntentMirror";
 import { RetrievalTrace } from "./RetrievalTrace";
 import { SourceCitationCard } from "./SourceCitationCard";
 import { WelcomeCard } from "./WelcomeCard";
 
 export function MessageBubble({
   message,
+  precedingUserQuery,
   onPickSuggestion,
+  onPickDisambiguation,
+  onReRunWithIntent,
+  onBroaden,
 }: {
   message: ChatMessage;
+  precedingUserQuery?: string;
   onPickSuggestion?: (q: string) => void;
+  onPickDisambiguation?: (docId: string, query: string, messageId: string) => void;
+  onReRunWithIntent?: (rewritten: string, originalQuery: string) => void;
+  onBroaden?: (messageId: string) => void;
 }) {
   const isUser = message.role === "user";
 
@@ -65,6 +77,17 @@ export function MessageBubble({
 
   // Refused: amber-red card (L4 only; rare)
   if (message.answerMode === "refused") {
+    // RBAC-blocked refused (exec diagnostic) uses the access-request
+    // pattern — the exec can still request access for themselves as a
+    // way to acknowledge / forward the request.
+    if (message.rbacBlocked && precedingUserQuery) {
+      return (
+        <AccessRequestBanner
+          message={message}
+          userQuery={precedingUserQuery}
+        />
+      );
+    }
     return (
       <ModeBanner
         icon={<ShieldAlert className="w-3.5 h-3.5 text-clearance-restricted" strokeWidth={1.75} />}
@@ -79,9 +102,33 @@ export function MessageBubble({
     );
   }
 
+  // Disambiguate: candidate-doc picker. Renders when retrieval found
+  // multiple docs with comparable relevance and the agent paused to
+  // confirm which one the user actually means.
+  if (message.answerMode === "disambiguate" && message.disambiguation) {
+    return (
+      <DisambiguationCard
+        message={message}
+        onPick={(docId, query, messageId) =>
+          onPickDisambiguation?.(docId, query, messageId)
+        }
+      />
+    );
+  }
+
   // Unknown: neutral "no confident answer" card (all non-L4 + garbage +
   // grounded→unknown demotions when the LLM refused on irrelevant chunks).
+  // When the block was RBAC-triggered, upgrade to the AccessRequestBanner
+  // so the user can action their way out instead of staring at a wall.
   if (message.answerMode === "unknown") {
+    if (message.rbacBlocked && precedingUserQuery) {
+      return (
+        <AccessRequestBanner
+          message={message}
+          userQuery={precedingUserQuery}
+        />
+      );
+    }
     return (
       <ModeBanner
         icon={<HelpCircle className="w-3.5 h-3.5 text-fg-muted" strokeWidth={1.75} />}
@@ -150,6 +197,32 @@ export function MessageBubble({
               </div>
             </div>
           )}
+
+          {message.intent?.text && (
+            <IntentMirror
+              intent={message.intent.text}
+              original=""
+              edited={message.intent.edited}
+              onReRun={(rewritten) =>
+                onReRunWithIntent?.(rewritten, "")
+              }
+            />
+          )}
+
+          {typeof message.confidence === "number" &&
+            !message.streaming &&
+            (message.answerMode === "grounded" || message.answerMode === "general") && (
+              <div className="flex items-center gap-2">
+                <ConfidenceChip
+                  value={message.confidence}
+                  onBroaden={
+                    message.confidence < 60
+                      ? () => onBroaden?.(message.id)
+                      : undefined
+                  }
+                />
+              </div>
+            )}
 
           <div className="card px-4 py-3">
             {message.content ? (

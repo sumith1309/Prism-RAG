@@ -19,6 +19,7 @@ import json
 import time
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from src.api.routers.welcome import build_welcome_payload
@@ -29,6 +30,7 @@ from src.core.prompts import (
     CORRECTIVE_PROMPT,
     FAITHFULNESS_PROMPT,
     GENERAL_SYSTEM_PROMPT,
+    INTENT_CLASSIFY_PROMPT,
     META_CONVERSATION_PROMPT,
     MULTI_QUERY_PROMPT,
     SYSTEM_INTEL_PROMPT,
@@ -425,6 +427,71 @@ async def _corrective_rewrite(query: str) -> str:
         return query
 
 
+async def _classify_intent(query: str) -> str:
+    """Return a one-sentence restatement of the user's query, prefixed with
+    "You're asking...". Runs a fast, low-temperature LLM call with a
+    short timeout — the user sees this as a reassuring "Understood as"
+    pill above the streamed answer. Falls back to the original query on
+    timeout or error (we never block the real answer on this).
+    """
+    try:
+        txt = await asyncio.wait_for(
+            _complete_chat(
+                [{"role": "user", "content": INTENT_CLASSIFY_PROMPT.format(query=query)}],
+                max_tokens=60,
+                temperature=0.1,
+            ),
+            timeout=4.0,
+        )
+        cleaned = (txt or "").strip().strip('"').strip("'").split("\n", 1)[0][:240]
+        # Reject the model's noise if it literally echoed the prompt back,
+        # or if it answered the question (rare but possible).
+        if len(cleaned) < 6 or cleaned.lower().startswith("restatement"):
+            return ""
+        return cleaned
+    except Exception:
+        return ""
+
+
+def _compute_confidence(
+    answer_mode: str,
+    chunks,
+    faithfulness: float,
+) -> int | None:
+    """Composite 0..100 confidence score exposed to the user as a chip.
+    Two signals:
+      - top_rerank: how well the best chunk matches the query (retrieval)
+      - faithfulness: how grounded the answer is in the sources (judge)
+
+    Grounded: weighted blend (50/50) when both are present, else the
+    single signal that is. Clamped to [5, 100] — anything below 5 reads
+    as a bug, not a score.
+    Non-grounded: returns None (no confidence chip shown).
+    """
+    if answer_mode != "grounded" or not chunks:
+        return None
+    top = chunks[0].rerank_score if chunks and chunks[0].rerank_score is not None else None
+    if top is None:
+        top = chunks[0].rrf_score or 0.0
+    # Normalise rerank_score (cross-encoder, can go negative on bad matches
+    # for bge-reranker-base — but STRONG hits are ~0.3..0.9). We clamp
+    # to [0, 1] for the chip. RRF scores tend to be ~0.01..0.05, so we
+    # scale those separately when used as the only signal.
+    if top > 1.0:  # unlikely, but keep it safe
+        top = 1.0
+    if top < 0.0:
+        top = 0.0
+    # If we're using RRF (no rerank), scale to [0,1] by assuming 0.05 ≈ great.
+    if chunks[0].rerank_score is None:
+        top = min(1.0, top / 0.05)
+
+    if faithfulness >= 0:
+        blended = top * 0.5 + faithfulness * 0.5
+    else:
+        blended = top  # retrieval-only
+    return max(5, min(100, int(round(blended * 100))))
+
+
 async def _faithfulness_score(answer: str, chunks) -> float:
     """LLM-judged 0..1 score of how faithful the answer is to the sources."""
     if not chunks or not answer.strip():
@@ -583,6 +650,104 @@ async def _stream_meta(query, history):
     messages.append({"role": "user", "content": query})
     async for delta in _stream_chat(messages, max_tokens=500, temperature=0.3):
         yield delta
+
+
+# ─── Agent: doc-ambiguity detector ──────────────────────────────────────────
+# When a user's query legitimately spans multiple distinct documents (two
+# policies covering different parties, a technical report and a handbook,
+# etc.), blending their chunks into one answer is a correctness bug.
+# Instead we pause, return the candidate docs, and let the user pick.
+
+_DISAMBIG_SCORE_GAP = 0.20   # top-2 doc rerank scores within 20% → ambiguous
+_DISAMBIG_MIN_DOCS = 2       # need at least 2 distinct docs in top-K
+_DISAMBIG_MIN_TOP_SCORE = 0.25  # don't trigger on weak retrievals; grounded
+                                 # threshold (STRONG_RERANK=0.30) is the
+                                 # anchor, 0.25 leaves room for medium-conf
+                                 # cases where disambiguation still helps.
+
+
+def _prettify_filename(fn: str) -> str:
+    """Strip extension + dedupe repeated prefix tokens ('HRMS-HRMS-...' →
+    'HRMS-...') + collapse separators to spaces. Used for user-facing
+    labels in the disambiguation card."""
+    s = fn.rsplit(".", 1)[0] if "." in fn else fn
+    parts = [p for p in s.replace("_", "-").split("-") if p]
+    deduped: list[str] = []
+    for p in parts:
+        if not deduped or deduped[-1].lower() != p.lower():
+            deduped.append(p)
+    return " ".join(deduped).strip() or fn
+
+
+def _detect_doc_ambiguity(chunks) -> list[dict] | None:
+    """Return candidate docs if the top-K reranked chunks span 2+ distinct
+    docs with comparable scores, else None.
+
+    Detection rule:
+      1. Group chunks by doc_id, keeping max(rerank_score) per doc
+      2. Need >=2 distinct docs with the top doc's score >= threshold
+      3. The top-2 doc scores must be within _DISAMBIG_SCORE_GAP (20%)
+         — otherwise the top doc is clearly winning and we just answer.
+
+    Each candidate is returned with a 1-line hint (first 160 chars of the
+    best chunk text from that doc) so the user sees *why* each doc is a
+    candidate, not just its filename.
+    """
+    if not chunks or len(chunks) < 2:
+        return None
+
+    by_doc: dict[str, dict] = {}
+    for c in chunks:
+        if not c.doc_id:
+            continue
+        score = c.rerank_score if c.rerank_score is not None else c.rrf_score
+        entry = by_doc.setdefault(
+            c.doc_id,
+            {
+                "doc_id": c.doc_id,
+                "filename": c.filename,
+                "top_score": -1.0,
+                "top_chunk_text": "",
+                "chunk_count": 0,
+            },
+        )
+        entry["chunk_count"] += 1
+        if score is not None and score > entry["top_score"]:
+            entry["top_score"] = float(score)
+            entry["top_chunk_text"] = c.text or ""
+
+    candidates = sorted(by_doc.values(), key=lambda d: -d["top_score"])
+    if len(candidates) < _DISAMBIG_MIN_DOCS:
+        return None
+
+    top = candidates[0]
+    second = candidates[1]
+    if top["top_score"] < _DISAMBIG_MIN_TOP_SCORE:
+        return None
+
+    # Score-spread check: if top much better than runner-up, NOT ambiguous.
+    gap = top["top_score"] - second["top_score"]
+    denom = abs(top["top_score"]) or 1.0
+    if (gap / denom) > _DISAMBIG_SCORE_GAP:
+        return None
+
+    # Shape for the frontend. Limit to 4 candidates — more than that and
+    # the user is just "give me all docs", not clarifying.
+    out = []
+    for cand in candidates[:4]:
+        hint_raw = (cand["top_chunk_text"] or "").strip().replace("\n", " ")
+        hint = (hint_raw[:160] + "…") if len(hint_raw) > 160 else hint_raw
+        out.append(
+            {
+                "doc_id": cand["doc_id"],
+                "filename": cand["filename"],
+                "label": _prettify_filename(cand["filename"]),
+                "hint": hint,
+                "top_score": round(cand["top_score"], 3),
+                "chunk_count": cand["chunk_count"],
+            }
+        )
+    return out
 
 
 @router.post("/chat")
@@ -858,12 +1023,32 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
             }
             return
 
+        # ── Agent: apply preferred_doc_id before any retrieval ──────────
+        # When the user clicks a doc in the disambiguation card, the
+        # frontend sends the retry with preferred_doc_id set. We fold it
+        # into req.doc_ids (a hard filter applied at retrieve time) so
+        # the whole pipeline scopes to that single doc. We also set
+        # skip_disambiguation=True implicitly so we never ping-pong.
+        # Persist the choice on the prior disambiguate turn so a reload
+        # renders the card as already-decided.
+        if req.preferred_doc_id:
+            req.doc_ids = [req.preferred_doc_id]
+            req.skip_disambiguation = True
+            if thread_id:
+                try:
+                    models.mark_last_disambiguation_chosen(
+                        thread_id, req.preferred_doc_id
+                    )
+                except Exception:
+                    pass
+
         # ── 2. Cache lookup ──────────────────────────────────────────────
         cache_settings = {
             "hyde": req.use_hyde,
             "rerank": req.use_rerank,
             "k": req.top_k,
             "sections": req.section_filter or [],
+            "preferred_doc_id": req.preferred_doc_id or "",
         }
         cached = chat_cache.get(user.id, user.level, req.query, req.doc_ids or [], cache_settings)
 
@@ -881,6 +1066,16 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
         faithfulness = -1.0
         tokens_prompt = 0
         tokens_completion = 0
+        # `chunks` may not be populated on the cached-hit or disambiguate
+        # paths; initialise to empty so the confidence-scoring helper
+        # called at the bottom doesn't NameError. Re-assigned inside the
+        # grounded retrieval branch.
+        chunks: list = []
+        # Agent — RBAC transparency signal. True when the query DID match
+        # a doc in the corpus but at a clearance above the caller's level,
+        # forcing `unknown` (non-L4) or `refused` (L4). Lets the frontend
+        # swap the bland "no answer" card for a "request access" card.
+        rbac_blocked = False
 
         try:
             if cached is not None:
@@ -916,6 +1111,22 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                     yield {"event": "unknown", "data": json.dumps({"message": full_answer})}
 
             else:
+                # ── Agent: kick off intent classification in the background.
+                # Runs in parallel with retrieval so the LLM latency is
+                # absorbed by the retrieve step. We'll await it just
+                # before streaming and emit the `intent` event. Skipped
+                # for very short queries (< 3 non-whitespace chars) and
+                # when the user supplied an `override_intent` from the
+                # Intent Mirror pill.
+                intent_task: asyncio.Task | None = None
+                if req.override_intent and req.override_intent.strip():
+                    # User already told us what they meant — just echo it.
+                    pass
+                elif len((req.query or "").strip()) >= 3:
+                    intent_task = asyncio.create_task(
+                        _classify_intent(req.query.strip())
+                    )
+
                 # ── 2b. Conversational contextualization ──────────────────
                 # If the user's message is a follow-up ("tell me more",
                 # "why?", pronoun-leading, etc.) and we have history, ask an
@@ -923,8 +1134,11 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                 # retriever has something concrete to match against. Without
                 # this step, "tell me in more detail" retrieves nothing and
                 # the answer collapses to "no confident answer".
-                search_query = req.query
-                if req.history and _looks_like_followup(req.query):
+                # When `override_intent` is set by the user (from the
+                # Intent Mirror pill edit), we use it directly as the
+                # search query — they've told us explicitly what they meant.
+                search_query = (req.override_intent or req.query).strip() or req.query
+                if req.history and _looks_like_followup(req.query) and not req.override_intent:
                     rewritten = await _contextualize_query(req.query, req.history)
                     if rewritten and rewritten.strip().lower() != req.query.strip().lower():
                         search_query = rewritten
@@ -953,10 +1167,35 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                 # ── 4. Relevance gate ─────────────────────────────────────
                 grounded_ok = bool(chunks) and _passes_bar(chunks)
 
+                # ── 4b. Agent: disambiguate when top chunks span distinct
+                # docs with comparable scores. Fires ONLY for grounded-
+                # quality retrievals — weak retrievals still fall through
+                # to corrective / general / unknown as before. Skipped
+                # when the caller already pinned a preferred doc, or when
+                # doc_ids was pre-scoped (single-doc query). We do NOT
+                # `return` — the mode-switch block (step 7) handles the
+                # `disambiguate` branch, so the shared `finally` still
+                # persists turns + writes the audit row.
+                disambig_candidates: list[dict] | None = None
+                if (
+                    grounded_ok
+                    and not req.skip_disambiguation
+                    and not req.preferred_doc_id
+                    and (not req.doc_ids or len(req.doc_ids) != 1)
+                ):
+                    disambig_candidates = _detect_doc_ambiguity(chunks)
+
                 # ── 5. Corrective RAG — one retry if first pass weak ─────
                 # Only fire for substantive queries (≥2 content words) — avoids
                 # wasting a rewrite LLM call on "hello", "hi", etc.
-                if req.use_corrective and not grounded_ok and _is_substantive_query(req.query):
+                # Skip entirely when we're about to disambiguate — the
+                # chunks were already strong enough to trigger it.
+                if (
+                    req.use_corrective
+                    and not grounded_ok
+                    and not disambig_candidates
+                    and _is_substantive_query(req.query)
+                ):
                     rewritten = await _corrective_rewrite(req.query)
                     if rewritten and rewritten.strip().lower() != req.query.strip().lower():
                         corrective_retries = 1
@@ -984,7 +1223,9 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                 #     corpus at any clearance, so there's nothing to leak.
                 #     Refusing here just frustrates users with off-topic
                 #     questions like "atomic weight of hydrogen".)
-                if grounded_ok:
+                if disambig_candidates:
+                    answer_mode = "disambiguate"
+                elif grounded_ok:
                     answer_mode = "grounded"
                 elif not _looks_like_real_query(req.query):
                     answer_mode = "unknown"
@@ -996,12 +1237,65 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                     has_higher_match = bool(probe) and _passes_bar(probe)
                     if has_higher_match:
                         answer_mode = "refused" if user.level >= 4 else "unknown"
+                        rbac_blocked = True
                     else:
                         answer_mode = "general"
 
+                # ── Agent: emit intent restatement right before streaming.
+                # Skip for disambiguate (the picker IS the intent check)
+                # and for answers where the agent's interpretation isn't
+                # meaningful (unknown/refused — no real answer to frame).
+                if answer_mode in {"grounded", "general"}:
+                    restatement = ""
+                    if req.override_intent and req.override_intent.strip():
+                        restatement = f"Using your edit: “{req.override_intent.strip()[:240]}”"
+                    elif intent_task is not None:
+                        try:
+                            restatement = await asyncio.wait_for(
+                                asyncio.shield(intent_task), timeout=2.0
+                            )
+                        except (asyncio.TimeoutError, Exception):
+                            restatement = ""
+                    if restatement:
+                        yield {
+                            "event": "intent",
+                            "data": json.dumps(
+                                {
+                                    "intent": restatement,
+                                    "original": req.query,
+                                    "edited": bool(req.override_intent),
+                                }
+                            ),
+                        }
+
+                # Cancel the intent task if it's still running (non-grounded
+                # path took over, e.g. disambiguate or refused).
+                if intent_task is not None and not intent_task.done():
+                    intent_task.cancel()
+
                 # ── 7. Emit + stream ─────────────────────────────────────
                 t_gen = time.perf_counter()
-                if answer_mode == "grounded":
+                if answer_mode == "disambiguate":
+                    # No LLM call — emit the candidates and let the
+                    # frontend render a picker. `sources_json` carries
+                    # the candidate list so Audit + thread replay can
+                    # reconstruct what was offered.
+                    full_answer = (
+                        "Your question could match these documents. "
+                        "Tap one to scope the answer to just that doc."
+                    )
+                    sources_json = json.dumps({"candidates": disambig_candidates})
+                    yield {
+                        "event": "disambiguate",
+                        "data": json.dumps(
+                            {
+                                "query": req.query,
+                                "candidates": disambig_candidates,
+                                "message": full_answer,
+                            }
+                        ),
+                    }
+                elif answer_mode == "grounded":
                     returned_chunks = len(chunks)
                     cited_doc_ids = sorted({c.doc_id for c in chunks if c.doc_id})
                     sources_payload = [
@@ -1041,15 +1335,33 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                         "This diagnostic is shown to executives for auditability."
                     )
                     full_answer = msg
-                    yield {"event": "refused", "data": json.dumps({"message": msg})}
+                    yield {
+                        "event": "refused",
+                        "data": json.dumps(
+                            {"message": msg, "rbac_blocked": rbac_blocked}
+                        ),
+                    }
 
                 else:  # unknown
-                    msg = (
-                        "I don't have a confident answer for that question. Try "
-                        "rephrasing, or check the Knowledge base tab for what's available."
-                    )
+                    if rbac_blocked:
+                        msg = (
+                            "I couldn't find an answer you're allowed to see. "
+                            "A document above your clearance level may cover this — "
+                            "request access below to let your manager review."
+                        )
+                    else:
+                        msg = (
+                            "I don't have a confident answer for that question. Try "
+                            "rephrasing, or check the Knowledge base tab for what's "
+                            "available."
+                        )
                     full_answer = msg
-                    yield {"event": "unknown", "data": json.dumps({"message": msg})}
+                    yield {
+                        "event": "unknown",
+                        "data": json.dumps(
+                            {"message": msg, "rbac_blocked": rbac_blocked}
+                        ),
+                    }
 
                 generate_ms = int((time.perf_counter() - t_gen) * 1000)
 
@@ -1083,6 +1395,7 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                         # leak its existence — show 'unknown' (or 'refused'
                         # for L4 with the diagnostic).
                         answer_mode = "refused" if user.level >= 4 else "unknown"
+                        rbac_blocked = True
                     else:
                         # Nothing anywhere in the corpus. Re-stream the
                         # answer with the general-knowledge prompt so the
@@ -1105,23 +1418,28 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                         tokens_completion = _approx_tokens(full_answer)
 
                 # ── 9. Cache it ──────────────────────────────────────────
-                chat_cache.put(
-                    user.id,
-                    user.level,
-                    req.query,
-                    req.doc_ids or [],
-                    cache_settings,
-                    {
-                        "answer_mode": answer_mode,
-                        "answer": full_answer,
-                        "returned_chunks": returned_chunks,
-                        "cited_doc_ids": cited_doc_ids,
-                        "sources_json": sources_json,
-                        "faithfulness": faithfulness,
-                        "tokens_prompt": tokens_prompt,
-                        "tokens_completion": tokens_completion,
-                    },
-                )
+                # Don't cache disambiguations — the user hasn't gotten a
+                # real answer yet, and re-running retrieval on the next
+                # identical query is cheap and keeps the candidate list
+                # fresh (new uploads change which docs are candidates).
+                if answer_mode != "disambiguate":
+                    chat_cache.put(
+                        user.id,
+                        user.level,
+                        req.query,
+                        req.doc_ids or [],
+                        cache_settings,
+                        {
+                            "answer_mode": answer_mode,
+                            "answer": full_answer,
+                            "returned_chunks": returned_chunks,
+                            "cited_doc_ids": cited_doc_ids,
+                            "sources_json": sources_json,
+                            "faithfulness": faithfulness,
+                            "tokens_prompt": tokens_prompt,
+                            "tokens_completion": tokens_completion,
+                        },
+                    )
 
         except Exception as e:
             err = f"{type(e).__name__}: {e}"
@@ -1171,6 +1489,31 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
             except Exception:
                 pass
 
+        # Agent: composite confidence chip value (grounded answers only).
+        # On cached replays we rehydrate a lightweight top-chunk from the
+        # stored sources_json so the chip still shows without re-running
+        # retrieval.
+        confidence_chunks = chunks if chunks else []
+        if not confidence_chunks and answer_mode == "grounded" and sources_json:
+            try:
+                import types as _types
+                parsed = json.loads(sources_json)
+                if isinstance(parsed, list) and parsed:
+                    top = parsed[0]
+                    confidence_chunks = [
+                        _types.SimpleNamespace(
+                            rerank_score=top.get("rerank_score"),
+                            rrf_score=top.get("rrf_score", 0.0),
+                        )
+                    ]
+            except Exception:
+                confidence_chunks = []
+        confidence = _compute_confidence(
+            answer_mode=answer_mode,
+            chunks=confidence_chunks,
+            faithfulness=faithfulness,
+        )
+
         yield {
             "event": "done",
             "data": json.dumps(
@@ -1188,8 +1531,63 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                     "tokens": {"prompt": tokens_prompt, "completion": tokens_completion},
                     "corrective_retries": corrective_retries,
                     "faithfulness": faithfulness,
+                    "confidence": confidence,
+                    "rbac_blocked": rbac_blocked,
                 }
             ),
         }
+
+
+# ─── Access Request endpoint ────────────────────────────────────────────────
+# When a non-L4 user sees an "RBAC-blocked" unknown card and clicks
+# "Request access", the frontend POSTs here. We persist a lightweight
+# audit trail so executives can review requests in the Audit tab. This
+# is deliberately minimal — no email, no workflow — the point is to let
+# the student demo the interaction without building a request-tracking
+# system. Extendable later without touching the UI contract.
+
+
+class AccessRequestPayload(BaseModel):
+    query: str
+    reason: str | None = None
+
+
+@router.post("/access-request")
+async def access_request(
+    req: AccessRequestPayload,
+    user: CurrentUser = Depends(chat_rate_limit),
+):
+    q = (req.query or "").strip()[:500]
+    reason = (req.reason or "").strip()[:500]
+    if not q:
+        return {"ok": False, "message": "query required"}
+    try:
+        models.write_audit(
+            models.AuditLog(
+                user_id=user.id,
+                username=user.username,
+                user_level=user.level,
+                query=f"[access-request] {q}" + (f" — {reason}" if reason else ""),
+                refused=True,
+                returned_chunks=0,
+                allowed_doc_ids="",
+                answer_mode="access_request",
+                latency_retrieve_ms=0,
+                latency_rerank_ms=0,
+                latency_generate_ms=0,
+                latency_total_ms=0,
+                tokens_prompt=0,
+                tokens_completion=0,
+                cached=False,
+                corrective_retries=0,
+                faithfulness=-1.0,
+            )
+        )
+    except Exception:
+        return {"ok": False, "message": "failed to log request"}
+    return {
+        "ok": True,
+        "message": f"Access request logged for {user.username}. A manager will review.",
+    }
 
     return EventSourceResponse(event_generator())

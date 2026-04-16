@@ -25,10 +25,16 @@ async def health():
     import os
 
     qdrant_ok = True
+    chunks_count = 0
     try:
-        get_qdrant().get_collection(settings.QDRANT_COLLECTION)
+        info = get_qdrant().get_collection(settings.QDRANT_COLLECTION)
+        chunks_count = int(info.points_count or 0)
     except Exception:
         qdrant_ok = False
+    try:
+        docs_count = len(store.list_documents())
+    except Exception:
+        docs_count = 0
     # Which LLM is actually in use? If LLM_BASE_URL is set, the OpenAI-compatible
     # path wins and LLM_MODEL is authoritative. Otherwise the HF chat model is used.
     use_openai = bool(os.environ.get("LLM_BASE_URL"))
@@ -45,6 +51,9 @@ async def health():
         "hf_token_configured": bool(settings.HUGGINGFACEHUB_API_TOKEN),
         "embedding_model": settings.EMBED_MODEL,
         "reranker_model": settings.RERANK_MODEL,
+        # Live counts surfaced on the landing-page stats strip.
+        "docs_count": docs_count,
+        "chunks_count": chunks_count,
     }
 
 

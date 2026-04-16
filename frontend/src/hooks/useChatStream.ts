@@ -10,7 +10,7 @@ import { pingThreadsChanged } from "./useThreads";
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 function turnToMessage(turn: ThreadTurn): ChatMessage {
-  return {
+  const msg: ChatMessage = {
     id: `srv-${turn.id}`,
     role: turn.role,
     content: turn.content,
@@ -19,6 +19,14 @@ function turnToMessage(turn: ThreadTurn): ChatMessage {
     answerMode: turn.answer_mode,
     streaming: false,
   };
+  if (turn.answer_mode === "disambiguate" && turn.disambiguation) {
+    msg.disambiguation = {
+      query: turn.disambiguation.query || "",
+      candidates: turn.disambiguation.candidates || [],
+      chosen_doc_id: turn.disambiguation.chosen_doc_id,
+    };
+  }
+  return msg;
 }
 
 export function useChatStream() {
@@ -56,9 +64,50 @@ export function useChatStream() {
   }, [urlThreadId, navigate]);
 
   const send = useCallback(
-    async (query: string) => {
+    async (
+      query: string,
+      opts?: {
+        // Agent path: user picked a doc from the disambiguation card.
+        // We mark the prior assistant bubble with `chosen_doc_id` so
+        // the UI can dim the un-picked candidates, and scope the new
+        // retrieval to just that doc.
+        preferredDocId?: string;
+        replyToMessageId?: string;
+        // Agent path: user edited the Intent Mirror pill. Sends the
+        // rewritten query as `override_intent` so retrieval uses it
+        // while the user's original message remains in the chat bubble.
+        overrideIntent?: string;
+        // Agent path: user clicked "Broaden" on a low-confidence chip.
+        // Re-runs this query once with multi-query fan-out (ignores
+        // global settings — temporary boost for just this call).
+        broaden?: boolean;
+        // Thread-memory scope. When set, retrieval is soft-filtered
+        // to this doc (caller computes from recent turns). Explicit
+        // activeDocIds always win over this.
+        threadScopeDocId?: string;
+      }
+    ) => {
       const trimmed = query.trim();
       if (!trimmed || isStreaming) return;
+
+      // If this is a disambiguation retry, update the previous assistant
+      // bubble to record the user's choice BEFORE appending the new
+      // assistant message — keeps the chat replay coherent.
+      if (opts?.replyToMessageId && opts.preferredDocId) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === opts.replyToMessageId && m.disambiguation
+              ? {
+                  ...m,
+                  disambiguation: {
+                    ...m.disambiguation,
+                    chosen_doc_id: opts.preferredDocId,
+                  },
+                }
+              : m
+          )
+        );
+      }
 
       const userMsg: ChatMessage = { id: uid(), role: "user", content: trimmed };
       const assistantMsg: ChatMessage = {
@@ -79,20 +128,36 @@ export function useChatStream() {
       setIsStreaming(true);
       pendingNavRef.current = null;
 
+      // Compute the effective doc_ids filter:
+      //   1. Explicit activeDocIds (from knowledge sidebar) wins — user
+      //      said "scope to these docs" and we respect it.
+      //   2. Else, if a thread-scope doc is provided AND no preferredDocId
+      //      is set (which takes precedence via its own path), use it.
+      const explicitScope = Array.from(activeDocIds);
+      const effectiveDocIds =
+        explicitScope.length > 0
+          ? explicitScope
+          : opts?.threadScopeDocId && !opts?.preferredDocId
+          ? [opts.threadScopeDocId]
+          : [];
+
       try {
         await streamChat(
           {
             query: trimmed,
-            doc_ids: Array.from(activeDocIds),
+            doc_ids: effectiveDocIds,
             use_hyde: settings.useHyde,
             use_rerank: settings.useRerank,
-            use_multi_query: settings.useMultiQuery,
+            use_multi_query: settings.useMultiQuery || !!opts?.broaden,
             use_corrective: settings.useCorrective,
             use_faithfulness: settings.useFaithfulness,
             section_filter: settings.sectionFilter.length ? settings.sectionFilter : undefined,
             top_k: settings.topK,
             history,
             thread_id: urlThreadId ?? null,
+            preferred_doc_id: opts?.preferredDocId ?? null,
+            skip_disambiguation: !!opts?.preferredDocId,
+            override_intent: opts?.overrideIntent ?? null,
           },
           {
             onThread: (threadId, _title, isNew) => {
@@ -111,7 +176,7 @@ export function useChatStream() {
                   m.id === assistantMsg.id ? { ...m, content: m.content + delta } : m
                 )
               ),
-            onRefused: (msg) =>
+            onRefused: (msg, rbacBlocked) =>
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantMsg.id
@@ -119,6 +184,7 @@ export function useChatStream() {
                         ...m,
                         content: msg,
                         refused: true,
+                        rbacBlocked,
                         answerMode: "refused" as AnswerMode,
                         streaming: false,
                         sources: [],
@@ -134,7 +200,7 @@ export function useChatStream() {
                     : m
                 )
               ),
-            onUnknown: (msg) =>
+            onUnknown: (msg, rbacBlocked) =>
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantMsg.id
@@ -142,6 +208,7 @@ export function useChatStream() {
                         ...m,
                         content: msg,
                         refused: true,
+                        rbacBlocked,
                         answerMode: "unknown" as AnswerMode,
                         streaming: false,
                         sources: [],
@@ -197,6 +264,29 @@ export function useChatStream() {
                     : m
                 )
               ),
+            onDisambiguate: (q, candidates, msg) =>
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMsg.id
+                    ? {
+                        ...m,
+                        content: msg,
+                        answerMode: "disambiguate" as AnswerMode,
+                        disambiguation: { query: q, candidates },
+                        sources: [],
+                        streaming: false,
+                      }
+                    : m
+                )
+              ),
+            onIntent: (intent, _original, edited) =>
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMsg.id
+                    ? { ...m, intent: { text: intent, edited } }
+                    : m
+                )
+              ),
             onDone: (answerMode, thread_id, meta) => {
               const finalMode = (answerMode as AnswerMode) || "grounded";
               // Backend can demote grounded → unknown post-generation when the
@@ -208,7 +298,8 @@ export function useChatStream() {
                 finalMode === "refused" ||
                 finalMode === "general" ||
                 finalMode === "meta" ||
-                finalMode === "system";
+                finalMode === "system" ||
+                finalMode === "disambiguate";
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantMsg.id
@@ -222,6 +313,7 @@ export function useChatStream() {
                         cached: meta.cached ?? m.cached,
                         corrective_retries: meta.corrective_retries,
                         faithfulness: meta.faithfulness,
+                        confidence: meta.confidence ?? null,
                       }
                     : m
                 )

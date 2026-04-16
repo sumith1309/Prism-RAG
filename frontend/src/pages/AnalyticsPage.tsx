@@ -250,6 +250,7 @@ const MODE_COLORS: Record<AnswerMode, string> = {
   social: "#a855f7",
   meta: "#f59e0b",
   system: "#06b6d4",
+  disambiguate: "#8b5cf6",
 };
 
 function ModeDonut({
@@ -703,6 +704,7 @@ const MODE_STYLE: Record<
   social: { label: "Social", icon: Sparkles, color: "text-accent", barBg: "bg-accent/60" },
   meta: { label: "Meta", icon: Sparkles, color: "text-accent", barBg: "bg-accent/70" },
   system: { label: "System", icon: Sparkles, color: "text-accent", barBg: "bg-accent/80" },
+  disambiguate: { label: "Clarify", icon: HelpCircle, color: "text-accent", barBg: "bg-accent/50" },
 };
 
 function ModeBar({ mode, count, pct }: { mode: AnswerMode; count: number; pct: number }) {
@@ -788,6 +790,7 @@ function computeStats(rows: AuditRow[]) {
     social: 0,
     meta: 0,
     system: 0,
+    disambiguate: 0,
   };
   for (const r of rows) {
     const m = (r.answer_mode || "grounded") as AnswerMode;

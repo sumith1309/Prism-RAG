@@ -2046,6 +2046,12 @@ async function runInspection(
         case "token":
           setState((s) => ({ ...s, answer: s.answer + (data.delta || "") }));
           break;
+        case "answer_reset":
+          // Server is re-starting the answer (refusal detected → falling
+          // back to general knowledge). Wipe the streamed refusal so new
+          // tokens don't append to the old text.
+          setState((s) => ({ ...s, answer: "" }));
+          break;
         case "done":
           setState((s) => ({
             ...s,

@@ -133,3 +133,15 @@ FAITHFULNESS_PROMPT = (
     "sources. Return ONLY a number between 0.0 and 1.0 (e.g. 0.92), nothing "
     "else.\n\nSOURCES:\n{sources}\n\nANSWER:\n{answer}\n\nScore:"
 )
+
+
+INTENT_CLASSIFY_PROMPT = (
+    "Restate the user's question as a single clear sentence beginning with "
+    "'You're asking'. Keep it concise (<= 18 words), preserve ALL proper nouns, "
+    "acronyms, numbers, and dates EXACTLY as the user typed them. Expand one "
+    "abbreviation in parentheses at most if it helps clarity. Do NOT answer "
+    "the question, do NOT invent specifics not in the original. If the query "
+    "is already a complete natural sentence, paraphrase it in your own words.\n\n"
+    "User query: {query}\n\n"
+    "Restatement:"
+)

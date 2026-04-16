@@ -62,6 +62,18 @@ class ChatRequest(BaseModel):
     history: list[ChatMessage] = Field(default_factory=list)
     top_k: int = 5
     thread_id: Optional[str] = None  # None = create new thread on first turn
+    # Agent-mode controls:
+    # ``preferred_doc_id`` — hard-scope retrieval to a single document.
+    #   Set by the frontend when the user clicks a candidate in the
+    #   disambiguation card. Bypasses ambiguity detection on the retry.
+    # ``override_intent`` — user-edited intent from the Intent Mirror pill.
+    #   When set, we retrieve against this rewritten query instead of
+    #   the raw input (original query is still shown in the chat bubble).
+    # ``skip_disambiguation`` — emergency bypass if the user explicitly
+    #   asks to search everything ("all docs", "don't ask, just answer").
+    preferred_doc_id: Optional[str] = None
+    override_intent: Optional[str] = None
+    skip_disambiguation: bool = False
 
 
 class ThreadSummary(BaseModel):
@@ -80,6 +92,10 @@ class ThreadTurn(BaseModel):
     answer_mode: str = "grounded"
     faithfulness: float = -1.0
     created_at: datetime
+    # Agent: populated only when answer_mode == "disambiguate". Carries
+    # the candidate docs offered to the user so thread-replay can re-
+    # render the picker (greyed out once the user has chosen).
+    disambiguation: Optional[dict] = None
 
 
 class ThreadDetail(BaseModel):

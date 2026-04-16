@@ -29,6 +29,15 @@ export interface Source {
   chunk_index?: number;
 }
 
+export interface DisambigCandidate {
+  doc_id: string;
+  filename: string;
+  label: string;
+  hint: string;
+  top_score: number;
+  chunk_count: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -48,9 +57,30 @@ export interface ChatMessage {
   cached?: boolean;
   corrective_retries?: number;
   faithfulness?: number;
+  // Agent: composite 0..100 confidence chip. Null when not grounded.
+  confidence?: number | null;
+  // Agent: true when unknown/refused was triggered by RBAC (a higher-
+  // clearance doc matched). Swaps the bland "no answer" card for the
+  // richer "request access" card on the frontend.
+  rbacBlocked?: boolean;
   corrective_rewrite?: string;
   contextualized_query?: string;
   welcome?: WelcomePayload;
+  // Agent — disambiguation card state (renders when answerMode="disambiguate")
+  disambiguation?: {
+    query: string;
+    candidates: DisambigCandidate[];
+    // Set after the user clicks a candidate — we flip the card to a
+    // "Scoped to X" confirmation so the history is readable on replay.
+    chosen_doc_id?: string;
+  };
+  // Agent — intent restatement shown above the streamed answer.
+  // `edited: true` means the user edited the pill and the answer used
+  // their override as the search query.
+  intent?: {
+    text: string;
+    edited: boolean;
+  };
 }
 
 export interface ChatSettings {
@@ -114,7 +144,15 @@ export interface AuditResponse {
   rows: AuditRow[];
 }
 
-export type AnswerMode = "grounded" | "refused" | "general" | "unknown" | "social" | "meta" | "system";
+export type AnswerMode =
+  | "grounded"
+  | "refused"
+  | "general"
+  | "unknown"
+  | "social"
+  | "meta"
+  | "system"
+  | "disambiguate";
 
 export interface WelcomeTier {
   level: number;
@@ -211,6 +249,12 @@ export interface ThreadTurn {
   answer_mode: AnswerMode;
   faithfulness: number; // -1 = not scored, 0..1 otherwise
   created_at: string;
+  // Only populated when answer_mode === "disambiguate".
+  disambiguation?: {
+    candidates: DisambigCandidate[];
+    query?: string;
+    chosen_doc_id?: string;
+  } | null;
 }
 
 export interface ThreadDetail extends ThreadSummary {

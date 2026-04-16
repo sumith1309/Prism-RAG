@@ -219,3 +219,37 @@ def list_turns(thread_id: str) -> list[ChatTurn]:
                 .order_by(ChatTurn.created_at.asc())
             )
         )
+
+
+def mark_last_disambiguation_chosen(thread_id: str, chosen_doc_id: str) -> None:
+    """Stamp the most-recent assistant disambiguate turn with the user's
+    choice so thread-replay renders the card as already-decided. Called
+    by the chat handler when a follow-up arrives with preferred_doc_id.
+
+    No-op if there's no disambiguate turn in the thread or if parsing the
+    stored candidates fails. The frontend still functions without this
+    mark (card shows clickable again on reload) — this just upgrades
+    the experience to "flawless" rather than merely "working".
+    """
+    import json as _json
+    with Session(_get_engine()) as s:
+        row = s.exec(
+            select(ChatTurn)
+            .where(ChatTurn.thread_id == thread_id)
+            .where(ChatTurn.answer_mode == "disambiguate")
+            .where(ChatTurn.role == "assistant")
+            .order_by(ChatTurn.created_at.desc())
+            .limit(1)
+        ).first()
+        if not row or not row.sources_json:
+            return
+        try:
+            blob = _json.loads(row.sources_json)
+            if not isinstance(blob, dict):
+                return
+            blob["chosen_doc_id"] = chosen_doc_id
+            row.sources_json = _json.dumps(blob)
+            s.add(row)
+            s.commit()
+        except Exception:
+            pass

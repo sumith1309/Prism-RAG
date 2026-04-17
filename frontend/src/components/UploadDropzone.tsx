@@ -117,6 +117,9 @@ export function UploadDropzone({
     accept: {
       "application/pdf": [".pdf"],
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+      "application/vnd.ms-excel": [".xls"],
+      "text/csv": [".csv"],
       "text/plain": [".txt"],
       "text/markdown": [".md", ".markdown"],
     },
@@ -178,7 +181,7 @@ export function UploadDropzone({
               <div className="font-medium text-fg">
                 {uploading ? "Indexing…" : "Upload a document"}
               </div>
-              <div className="text-fg-subtle mt-0.5">PDF · DOCX · TXT · MD (up to 25 MB)</div>
+              <div className="text-fg-subtle mt-0.5">PDF · DOCX · XLSX · CSV · TXT · MD (up to 25 MB)</div>
             </div>
           </div>
         </div>

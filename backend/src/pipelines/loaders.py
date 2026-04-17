@@ -279,7 +279,96 @@ def _load_text(path: Path) -> list[LCDocument]:
     return [LCDocument(page_content=c, metadata={"page": i + 1}) for i, c in enumerate(chunks)]
 
 
-SUPPORTED_EXTS = {".pdf", ".docx", ".txt", ".md", ".markdown"}
+def _load_excel(path: Path) -> list[LCDocument]:
+    """Load .xlsx/.xls — serialize each row as 'Header: Value' sentences.
+
+    Multi-sheet workbooks produce one section per sheet. Row 1 of each
+    sheet is treated as column headers. Empty rows are skipped.
+    """
+    import openpyxl
+
+    wb = openpyxl.load_workbook(str(path), read_only=True, data_only=True)
+    parts: list[str] = []
+
+    for sheet in wb.worksheets:
+        rows = list(sheet.iter_rows(values_only=True))
+        if not rows:
+            continue
+
+        # First row = headers
+        headers = [str(h).strip() if h is not None else f"Column {j+1}"
+                   for j, h in enumerate(rows[0])]
+
+        if len(wb.worksheets) > 1:
+            parts.append(f"Sheet: {sheet.title}")
+
+        for row in rows[1:]:
+            cells = [str(v).strip() if v is not None else "" for v in row]
+            if not any(cells):
+                continue
+            row_parts = []
+            for j, cell_val in enumerate(cells):
+                if not cell_val:
+                    continue
+                header = headers[j] if j < len(headers) else f"Column {j+1}"
+                row_parts.append(f"{header}: {cell_val}")
+            if row_parts:
+                parts.append(". ".join(row_parts) + ".")
+
+        parts.append("")  # blank line between sheets
+
+    wb.close()
+    text = "\n".join(parts).strip()
+    if not text:
+        return [LCDocument(page_content="", metadata={"page": 1})]
+
+    # Split into pseudo-pages (~3000 chars each)
+    page_size = 3000
+    chunks = [text[i : i + page_size] for i in range(0, len(text), page_size)] or [text]
+    return [LCDocument(page_content=c, metadata={"page": i + 1}) for i, c in enumerate(chunks)]
+
+
+def _load_csv(path: Path) -> list[LCDocument]:
+    """Load .csv — serialize each row as 'Header: Value' sentences.
+
+    First row is treated as column headers.
+    """
+    import csv
+
+    with open(path, newline="", encoding="utf-8", errors="ignore") as f:
+        reader = csv.reader(f)
+        rows = list(reader)
+
+    if len(rows) < 2:
+        text = "\n".join(",".join(r) for r in rows)
+        return [LCDocument(page_content=text, metadata={"page": 1})]
+
+    headers = [h.strip() or f"Column {j+1}" for j, h in enumerate(rows[0])]
+    parts: list[str] = []
+
+    for row in rows[1:]:
+        cells = [v.strip() for v in row]
+        if not any(cells):
+            continue
+        row_parts = []
+        for j, cell_val in enumerate(cells):
+            if not cell_val:
+                continue
+            header = headers[j] if j < len(headers) else f"Column {j+1}"
+            row_parts.append(f"{header}: {cell_val}")
+        if row_parts:
+            parts.append(". ".join(row_parts) + ".")
+
+    text = "\n".join(parts).strip()
+    if not text:
+        return [LCDocument(page_content="", metadata={"page": 1})]
+
+    page_size = 3000
+    chunks = [text[i : i + page_size] for i in range(0, len(text), page_size)] or [text]
+    return [LCDocument(page_content=c, metadata={"page": i + 1}) for i, c in enumerate(chunks)]
+
+
+SUPPORTED_EXTS = {".pdf", ".docx", ".txt", ".md", ".markdown", ".xlsx", ".xls", ".csv"}
 
 
 def load_any(path: Path) -> list[LCDocument]:
@@ -288,6 +377,10 @@ def load_any(path: Path) -> list[LCDocument]:
         return _load_pdf(path)
     if ext == ".docx":
         return _load_docx(path)
+    if ext in {".xlsx", ".xls"}:
+        return _load_excel(path)
+    if ext == ".csv":
+        return _load_csv(path)
     if ext in {".txt", ".md", ".markdown"}:
         return _load_text(path)
     raise ValueError(f"Unsupported file type: {ext}")
@@ -298,6 +391,9 @@ def detect_mime(path: Path) -> str:
     return {
         ".pdf": "application/pdf",
         ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".xls": "application/vnd.ms-excel",
+        ".csv": "text/csv",
         ".txt": "text/plain",
         ".md": "text/markdown",
         ".markdown": "text/markdown",

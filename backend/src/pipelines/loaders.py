@@ -171,15 +171,73 @@ def _docx_page_count(path: Path) -> int:
     return 0
 
 
+def _extract_docx_with_tables(path: Path) -> str:
+    """Extract DOCX content using python-docx, serializing tables with
+    column headers on every row so table structure survives chunking.
+
+    Falls back to docx2txt if python-docx fails.
+    """
+    try:
+        from docx import Document as DocxDocument
+    except ImportError:
+        import docx2txt
+        return (docx2txt.process(str(path)) or "").strip()
+
+    try:
+        doc = DocxDocument(str(path))
+    except Exception:
+        import docx2txt
+        return (docx2txt.process(str(path)) or "").strip()
+
+    # Build a content-order list from the document body. python-docx
+    # exposes body.iter_inner_content() in newer versions but we use
+    # the XML element tree for compatibility with all versions.
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    parts: list[str] = []
+    for element in doc.element.body:
+        tag = element.tag.split("}")[-1]
+
+        if tag == "p":
+            para = Paragraph(element, doc)
+            text = para.text.strip()
+            if text:
+                parts.append(text)
+
+        elif tag == "tbl":
+            table = Table(element, doc)
+            if len(table.rows) < 2:
+                # Single-row table — just dump cell values.
+                cells = [c.text.strip() for c in table.rows[0].cells if c.text.strip()]
+                if cells:
+                    parts.append(" | ".join(cells))
+                continue
+
+            headers = [cell.text.strip() for cell in table.rows[0].cells]
+            for row in table.rows[1:]:
+                cells = [cell.text.strip() for cell in row.cells]
+                row_parts = []
+                for j, cell_val in enumerate(cells):
+                    if not cell_val:
+                        continue
+                    header = headers[j] if j < len(headers) else f"Column {j+1}"
+                    row_parts.append(f"{header}: {cell_val}")
+                if row_parts:
+                    parts.append(". ".join(row_parts) + ".")
+            parts.append("")  # blank line after table
+
+    return "\n\n".join(parts)
+
+
 def _load_docx(path: Path) -> list[LCDocument]:
     """Load a .docx as N pseudo-pages (N = real page count when available,
     otherwise estimated from text length at ~3000 chars/page). This matches
     PDF/text behavior — one LCDocument per page, then the standard text
     splitter produces chunks on top. Fixes the old behavior that treated
     each paragraph as a page and produced hundreds of fake pages."""
-    import docx2txt
 
-    text = _preprocess_text((docx2txt.process(str(path)) or "").strip())
+    text = _preprocess_text(_extract_docx_with_tables(path))
     if not text:
         return [LCDocument(page_content="", metadata={"page": 1})]
 

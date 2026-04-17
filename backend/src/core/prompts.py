@@ -107,9 +107,11 @@ MULTI_QUERY_PROMPT = (
 
 CORRECTIVE_PROMPT = (
     "The first retrieval pass was weak. Rewrite the user's question to "
-    "maximize retrieval recall: add domain-specific synonyms, expand "
-    "acronyms, include likely keywords. Return ONLY the rewritten question "
-    "as a single line, no preamble.\n\nOriginal: {query}\n\nRewritten:"
+    "maximize retrieval recall. For each key term, append 2-3 synonyms in "
+    "parentheses — e.g. 'fonts (typography typefaces font-family)'. Also "
+    "expand acronyms and add likely document section keywords. Return ONLY "
+    "the rewritten question as a single line, no preamble."
+    "\n\nOriginal: {query}\n\nRewritten:"
 )
 
 

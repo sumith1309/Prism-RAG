@@ -118,6 +118,22 @@ _META_CONV_PHRASES = (
     "what is this conversation", "what was the last",
     "what was i asking", "what was i talking",
     "go back to", "we were talking about", "what were we talking",
+    # Ordinal variants — users often use "1st" / "2nd" / "3rd" instead
+    # of spelled-out words when referring to their earlier turns.
+    "1st question", "2nd question", "3rd question", "4th question", "5th question",
+    "1st answer", "2nd answer", "3rd answer", "4th answer", "5th answer",
+    "my 1st", "my 2nd", "my 3rd", "my 4th", "my 5th",
+    "tell about my 1st", "tell about my 2nd", "tell about my 3rd",
+)
+
+# Regex for catching "what is/was Nth" or bare ordinal references in
+# ≤5-word queries when history exists. More robust than listing every
+# possible phrasing.
+_META_ORDINAL_PATTERN = re.compile(
+    r"\b(?:what(?:'s| is| was| about)?|tell me(?: about)?|the|and(?: the)?)\s+"
+    r"(?:my\s+)?(?:\d+(?:st|nd|rd|th)|first|second|third|fourth|fifth|"
+    r"sixth|seventh|eighth|ninth|tenth|last|previous|next)\b",
+    re.IGNORECASE,
 )
 
 
@@ -202,8 +218,16 @@ def _is_meta_conversation(query: str, history) -> bool:
     t = query.strip().lower().rstrip("?.! ")
     if not t:
         return False
-    # Short queries that contain a meta cue are very likely meta-questions.
-    return any(p in t for p in _META_CONV_PHRASES)
+    # Phrase-list match.
+    if any(p in t for p in _META_CONV_PHRASES):
+        return True
+    # Regex for ordinal references in short queries — catches "what is
+    # 2nd", "tell me the 3rd", "and the 4th" etc. Only fire on short
+    # inputs (≤8 words) so we don't false-positive on long corpus
+    # queries that happen to mention "the 2nd quarter's results".
+    if len(t.split()) <= 5 and _META_ORDINAL_PATTERN.search(t):
+        return True
+    return False
 
 
 def _is_social(query: str) -> bool:

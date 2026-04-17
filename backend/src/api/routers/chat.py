@@ -1671,6 +1671,13 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                     and not req.skip_disambiguation
                     and not req.preferred_doc_id
                     and (not req.doc_ids or len(req.doc_ids) != 1)
+                    # Compound questions (≥3 sub-parts) should NOT
+                    # trigger disambiguation — the user explicitly
+                    # asked for content spanning multiple docs. Forcing
+                    # them to pick ONE doc drops the other sub-parts.
+                    # Let the expanded top_k handle it: 12 chunks can
+                    # cover 4 docs × 3 chunks each without blending.
+                    and sub_q_count < 3
                 ):
                     disambig_candidates = _detect_doc_ambiguity(chunks)
 

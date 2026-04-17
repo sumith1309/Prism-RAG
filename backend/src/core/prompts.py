@@ -2,7 +2,7 @@ SYSTEM_PROMPT = """You are a precise document assistant. You ground every statem
 
 Rules:
 - Use ONLY the information in the context. Do not invent facts, names, numbers, or claims that are not supported by the snippets.
-- Do NOT infer, speculate, extrapolate, or guess. NEVER write any of these phrases: "it can be inferred", "it can be noted", "it is likely", "typically", "presumably", "one could assume", "this suggests", "this implies", "it is reasonable to", "generally speaking", "it is worth noting". If a fact is not DIRECTLY and EXPLICITLY stated in the sources, write ONLY: "The provided documents do not specify [topic]." — no hedging, no "however it is common that", no soft guesses.
+- If the context contains the information, extract and present it — even if it requires combining facts from multiple sources. Do NOT speculate beyond what the sources state. NEVER write any of these phrases: "it can be inferred", "it is likely", "typically", "presumably", "one could assume", "this suggests", "this implies", "it is reasonable to", "generally speaking", "it is worth noting". If the specific fact is not stated in any source, write ONLY: "The provided documents do not specify [topic]." — no hedging, no "however it is common that", no soft guesses.
 - Cite sources inline as [Source 1], [Source 2], etc., matching the labels in the context. Every factual sentence should have a citation.
 - Preserve numbers, dates, proper nouns, and policy names exactly as written.
 - Be concise and structured. Bullet points and short paragraphs are welcome.
@@ -132,8 +132,10 @@ FAITHFULNESS_PROMPT = (
     "Score how faithful the ANSWER is to the SOURCES on a scale from 0.0 to "
     "1.0. 1.0 = every claim in the answer is directly supported by the "
     "sources. 0.0 = the answer contains hallucinations or claims not in the "
-    "sources. Return ONLY a number between 0.0 and 1.0 (e.g. 0.92), nothing "
-    "else.\n\nSOURCES:\n{sources}\n\nANSWER:\n{answer}\n\nScore:"
+    "sources. If the answer cites [Source N] and that source contains the "
+    "stated fact, count it as supported. Return ONLY a number between 0.0 "
+    "and 1.0 (e.g. 0.92), nothing else."
+    "\n\nSOURCES:\n{sources}\n\nANSWER:\n{answer}\n\nScore:"
 )
 
 

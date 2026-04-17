@@ -50,7 +50,7 @@ router = APIRouter(prefix="/api", tags=["chat"])
 
 
 # --- relevance gate (RRF-first; rerank supplementary) -----------------------
-STRONG_RRF = 0.024
+STRONG_RRF = 0.032
 STRONG_RERANK = 0.30
 MEDIUM_RRF = 0.015
 MEDIUM_RERANK = 0.05
@@ -809,8 +809,11 @@ async def _faithfulness_score(answer: str, chunks) -> float:
     """LLM-judged 0..1 score of how faithful the answer is to the sources."""
     if not chunks or not answer.strip():
         return -1.0
+    # Show the verifier the same chunks the generator saw — truncate each
+    # to 400 chars (enough for the key fact) but include ALL chunks so a
+    # claim citing [Source 8] doesn't look fabricated.
     srcs = "\n\n".join(
-        f"[Source {c.source_index}] {c.text[:600]}" for c in chunks[:5]
+        f"[Source {c.source_index}] {c.text[:400]}" for c in chunks
     )
     try:
         txt = await asyncio.wait_for(
@@ -928,8 +931,9 @@ async def _stream_grounded(query, chunks, history):
     messages.append({"role": "user", "content": build_user_prompt(query, context)})
     # More chunks → longer answer needed. Scale max_tokens with chunk
     # count so compound 12-chunk answers don't get truncated mid-sentence.
-    max_tok = 600 if len(chunks) <= 6 else min(1200, 600 + len(chunks) * 50)
-    async for delta in _stream_chat(messages, max_tokens=max_tok, temperature=0.2):
+    # 400 is enough for most grounded answers (150-300 tokens typical).
+    max_tok = 400 if len(chunks) <= 6 else min(800, 400 + len(chunks) * 40)
+    async for delta in _stream_chat(messages, max_tokens=max_tok, temperature=0.0):
         yield delta
 
 
@@ -938,7 +942,7 @@ async def _stream_general(query, history):
     for m in _budget_history(history, max_chars=6000, max_turns=20):
         messages.append({"role": m.role, "content": m.content})
     messages.append({"role": "user", "content": query})
-    async for delta in _stream_chat(messages, max_tokens=600, temperature=0.4):
+    async for delta in _stream_chat(messages, max_tokens=300, temperature=0.2):
         yield delta
 
 

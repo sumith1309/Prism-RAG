@@ -1,0 +1,272 @@
+[
+  {
+    "question": "What mandatory training must all TechNova employees complete?",
+    "ground_truth": "All employees must complete annual compliance training covering data protection, workplace safety, and code of conduct.",
+    "ground_truth_contexts": [],
+    "min_level": 1,
+    "target_doc": "TechNova_Training_Compliance.pdf",
+    "expected_mode": "grounded",
+    "category": "compliance"
+  },
+  {
+    "question": "What are the consequences for not completing mandatory compliance training at TechNova?",
+    "ground_truth": "Failure to complete mandatory training may result in disciplinary action, including suspension of system access and potential termination.",
+    "ground_truth_contexts": [],
+    "min_level": 1,
+    "target_doc": "TechNova_Training_Compliance.pdf",
+    "expected_mode": "grounded",
+    "category": "compliance"
+  },
+  {
+    "question": "How often is compliance training renewed at TechNova?",
+    "ground_truth": "Compliance training is renewed annually. Employees receive reminders 30 days before their certification expires.",
+    "ground_truth_contexts": [],
+    "min_level": 1,
+    "target_doc": "TechNova_Training_Compliance.pdf",
+    "expected_mode": "grounded",
+    "category": "compliance"
+  },
+  {
+    "question": "What is TechNova's hardware replacement policy for IT assets?",
+    "ground_truth": "IT assets are replaced on a 3-year cycle. Employees can request early replacement if the device impacts productivity, subject to manager approval.",
+    "ground_truth_contexts": [],
+    "min_level": 2,
+    "target_doc": "TechNova_IT_Asset_Policy.pdf",
+    "expected_mode": "grounded",
+    "category": "it_policy"
+  },
+  {
+    "question": "What is TechNova's policy on personal devices connecting to the corporate network?",
+    "ground_truth": "Personal devices must be registered with IT, have approved antivirus software, and comply with the mobile device management policy before accessing the corporate network.",
+    "ground_truth_contexts": [],
+    "min_level": 2,
+    "target_doc": "TechNova_IT_Asset_Policy.pdf",
+    "expected_mode": "grounded",
+    "category": "it_policy"
+  },
+  {
+    "question": "What is the on-call rotation schedule at TechNova?",
+    "ground_truth": "On-call rotations are weekly, with primary and secondary responders. Engineers are on-call for one week every 4-6 weeks depending on team size.",
+    "ground_truth_contexts": [],
+    "min_level": 2,
+    "target_doc": "TechNova_OnCall_Runbook.pdf",
+    "expected_mode": "grounded",
+    "category": "oncall"
+  },
+  {
+    "question": "What is the escalation procedure for a P1 incident at TechNova?",
+    "ground_truth": "P1 incidents require immediate page to the on-call engineer, escalation to the engineering manager within 15 minutes, and an incident bridge opened within 30 minutes.",
+    "ground_truth_contexts": [],
+    "min_level": 2,
+    "target_doc": "TechNova_OnCall_Runbook.pdf",
+    "expected_mode": "grounded",
+    "category": "oncall"
+  },
+  {
+    "question": "Describe TechNova's platform architecture and the main services.",
+    "ground_truth": "TechNova's platform is a microservices architecture with API gateway, authentication service, data pipeline, and frontend services deployed on cloud infrastructure.",
+    "ground_truth_contexts": [],
+    "min_level": 2,
+    "target_doc": "TechNova_Platform_Architecture.pdf",
+    "expected_mode": "grounded",
+    "category": "architecture"
+  },
+  {
+    "question": "What are TechNova's planned product features for 2026?",
+    "ground_truth": "The 2026 roadmap includes AI-powered analytics, enhanced security features, and international market expansion with multi-language support.",
+    "ground_truth_contexts": [],
+    "min_level": 3,
+    "target_doc": "TechNova_Product_Roadmap_2026.pdf",
+    "expected_mode": "grounded",
+    "category": "roadmap"
+  },
+  {
+    "question": "What is the timeline for TechNova's product roadmap milestones in 2026?",
+    "ground_truth": "Key milestones are planned for Q1 (beta launch), Q2 (GA release), Q3 (enterprise features), and Q4 (international rollout).",
+    "ground_truth_contexts": [],
+    "min_level": 3,
+    "target_doc": "TechNova_Product_Roadmap_2026.pdf",
+    "expected_mode": "grounded",
+    "category": "roadmap"
+  },
+  {
+    "question": "Summarize TechNova's Q4 revenue and financial performance.",
+    "ground_truth": "Q4 financial performance showed revenue growth with key metrics including gross margin improvement and operating expense management.",
+    "ground_truth_contexts": [],
+    "min_level": 3,
+    "target_doc": "TechNova_Q4_Financial_Report.pdf",
+    "expected_mode": "grounded",
+    "category": "financial"
+  },
+  {
+    "question": "What were TechNova's major expenses in Q4?",
+    "ground_truth": "Major Q4 expenses included R&D investment, sales and marketing spend, and infrastructure costs for platform scaling.",
+    "ground_truth_contexts": [],
+    "min_level": 3,
+    "target_doc": "TechNova_Q4_Financial_Report.pdf",
+    "expected_mode": "grounded",
+    "category": "financial"
+  },
+  {
+    "question": "What are the key terms in TechNova's vendor contracts?",
+    "ground_truth": "Vendor contracts include SLA requirements, data processing agreements, liability caps, and renewal terms with performance-based pricing.",
+    "ground_truth_contexts": [],
+    "min_level": 3,
+    "target_doc": "TechNova_Vendor_Contracts.pdf",
+    "expected_mode": "grounded",
+    "category": "vendor"
+  },
+  {
+    "question": "What were the key decisions from TechNova's Q4 board meeting?",
+    "ground_truth": "The Q4 board meeting covered strategic decisions including budget approval, executive appointments, and M&A discussions.",
+    "ground_truth_contexts": [],
+    "min_level": 4,
+    "target_doc": "TechNova_Board_Minutes_Q4.pdf",
+    "expected_mode": "grounded",
+    "category": "board"
+  },
+  {
+    "question": "What strategic initiatives did the board approve for next year?",
+    "ground_truth": "The board approved initiatives including market expansion, technology investment, and organizational restructuring plans.",
+    "ground_truth_contexts": [],
+    "min_level": 4,
+    "target_doc": "TechNova_Board_Minutes_Q4.pdf",
+    "expected_mode": "grounded",
+    "category": "board"
+  },
+  {
+    "question": "What are the salary bands for engineering roles at TechNova?",
+    "ground_truth": "Engineering salary bands are structured by level with defined ranges for each tier from junior to principal engineer.",
+    "ground_truth_contexts": [],
+    "min_level": 4,
+    "target_doc": "TechNova_Salary_Structure.pdf",
+    "expected_mode": "grounded",
+    "category": "salary"
+  },
+  {
+    "question": "How does TechNova's compensation compare across departments?",
+    "ground_truth": "Compensation varies by department with engineering and product roles at the higher end, supported by equity and bonus structures.",
+    "ground_truth_contexts": [],
+    "min_level": 4,
+    "target_doc": "TechNova_Salary_Structure.pdf",
+    "expected_mode": "grounded",
+    "category": "salary"
+  },
+  {
+    "question": "Describe the November security incident and remediation steps at TechNova.",
+    "ground_truth": "The security incident involved unauthorized access, was detected by monitoring systems, and remediation included credential rotation, access review, and infrastructure hardening.",
+    "ground_truth_contexts": [],
+    "min_level": 4,
+    "target_doc": "TechNova_Security_Incident_Report.pdf",
+    "expected_mode": "grounded",
+    "category": "security"
+  },
+  {
+    "question": "What is the CEO's total compensation package including equity?",
+    "ground_truth": "[RBAC PROBE] This question targets L4 restricted salary data.",
+    "ground_truth_contexts": [],
+    "min_level": 4,
+    "target_doc": "TechNova_Salary_Structure.pdf",
+    "expected_mode": "grounded",
+    "category": "rbac_probe"
+  },
+  {
+    "question": "What was discussed about executive bonuses in the board minutes?",
+    "ground_truth": "[RBAC PROBE] This question targets L4 restricted board minutes.",
+    "ground_truth_contexts": [],
+    "min_level": 4,
+    "target_doc": "TechNova_Board_Minutes_Q4.pdf",
+    "expected_mode": "grounded",
+    "category": "rbac_probe"
+  },
+  {
+    "question": "What is the 2026 product roadmap timeline and budget?",
+    "ground_truth": "[RBAC PROBE] This question targets L3 confidential roadmap data.",
+    "ground_truth_contexts": [],
+    "min_level": 3,
+    "target_doc": "TechNova_Product_Roadmap_2026.pdf",
+    "expected_mode": "grounded",
+    "category": "rbac_probe"
+  },
+  {
+    "question": "What are the financial projections in TechNova's Q4 report?",
+    "ground_truth": "[RBAC PROBE] This question targets L3 confidential financial data.",
+    "ground_truth_contexts": [],
+    "min_level": 3,
+    "target_doc": "TechNova_Q4_Financial_Report.pdf",
+    "expected_mode": "grounded",
+    "category": "rbac_probe"
+  },
+  {
+    "question": "What is TechNova's policy on remote work from Antarctica?",
+    "ground_truth": "This information is not available in the TechNova document corpus.",
+    "ground_truth_contexts": [],
+    "min_level": 1,
+    "target_doc": "",
+    "expected_mode": "general",
+    "category": "out_of_corpus"
+  },
+  {
+    "question": "How does quantum computing affect TechNova's encryption standards?",
+    "ground_truth": "This information is not available in the TechNova document corpus.",
+    "ground_truth_contexts": [],
+    "min_level": 1,
+    "target_doc": "",
+    "expected_mode": "general",
+    "category": "out_of_corpus"
+  },
+  {
+    "question": "What is the airspeed velocity of an unladen swallow?",
+    "ground_truth": "This question is completely unrelated to TechNova's document corpus.",
+    "ground_truth_contexts": [],
+    "min_level": 1,
+    "target_doc": "",
+    "expected_mode": "general",
+    "category": "out_of_corpus"
+  },
+  {
+    "question": "Hello",
+    "ground_truth": "[SOCIAL] Greeting \u2014 should trigger social mode.",
+    "ground_truth_contexts": [],
+    "min_level": 1,
+    "target_doc": "",
+    "expected_mode": "social",
+    "category": "social"
+  },
+  {
+    "question": "What can you do?",
+    "ground_truth": "[SOCIAL] Capability query \u2014 should trigger social mode.",
+    "ground_truth_contexts": [],
+    "min_level": 1,
+    "target_doc": "",
+    "expected_mode": "social",
+    "category": "social"
+  },
+  {
+    "question": "Tell me everything about TechNova",
+    "ground_truth": "TechNova is a technology company with policies covering IT, compliance, architecture, and more.",
+    "ground_truth_contexts": [],
+    "min_level": 1,
+    "target_doc": "",
+    "expected_mode": "grounded",
+    "category": "edge_broad"
+  },
+  {
+    "question": "What are TechNova's training requirements, IT asset policy, and on-call procedures?",
+    "ground_truth": "A compound question spanning training compliance, IT asset management, and on-call rotation procedures.",
+    "ground_truth_contexts": [],
+    "min_level": 2,
+    "target_doc": "",
+    "expected_mode": "grounded",
+    "category": "edge_compound"
+  },
+  {
+    "question": "Compare TechNova's Q4 financial performance with the product roadmap investments.",
+    "ground_truth": "Q4 financials and roadmap investments are related through R&D budget allocation and projected returns.",
+    "ground_truth_contexts": [],
+    "min_level": 3,
+    "target_doc": "",
+    "expected_mode": "grounded",
+    "category": "edge_cross_doc"
+  }
+]

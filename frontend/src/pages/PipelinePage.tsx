@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 import { gsap } from "@/lib/gsap";
 import {
   CountUp,
+  PipelineArchitecture,
   PipelineProgressBar,
   StageReveal,
   TextReveal,
@@ -335,6 +336,31 @@ export function PipelinePage() {
           setUseRerank={setUseRerank}
           compareMode={compareMode}
           setCompareMode={setCompareMode}
+        />
+
+        {/* ── Living Architecture: the "machine you watch work" ────── */}
+        <PipelineArchitecture
+          step={state.step}
+          query={state.query}
+          data={{
+            embedMs: state.embedMs || undefined,
+            embedModel: state.embedModel || undefined,
+            embedDim: state.embedVec?.length || undefined,
+            denseCount: state.dense.length || undefined,
+            denseMs: state.denseMs || undefined,
+            bm25Count: state.bm25.length || undefined,
+            bm25Ms: state.bm25Ms || undefined,
+            rrfCount: state.rrf.length || undefined,
+            rrfMs: state.rrfMs || undefined,
+            rerankCount: state.rerank.length || undefined,
+            rerankMs: state.rerankMs || undefined,
+            rerankModel: state.rerankModel || undefined,
+            answer: state.answer || undefined,
+            generateMs: state.generateMs || undefined,
+            generateModel: state.generateModel || undefined,
+            faithfulness: state.faithfulness >= 0 ? state.faithfulness : undefined,
+            totalMs: state.totalMs || undefined,
+          }}
         />
 
         <FlowDiagram step={state.step} />

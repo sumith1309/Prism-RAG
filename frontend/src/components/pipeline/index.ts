@@ -8,6 +8,7 @@
  */
 export { CountUp } from "./CountUp";
 export { ParticleFlow, ParticleGlowFilter } from "./ParticleFlow";
+export { PipelineArchitecture } from "./PipelineArchitecture";
 export {
   PipelineProgressBar,
   StageBadge,

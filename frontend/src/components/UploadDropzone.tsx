@@ -148,25 +148,13 @@ export function UploadDropzone({
         </div>
       ) : (
         <>
-          <div className="flex items-center justify-between">
-            <label className="text-[10.5px] uppercase tracking-wider text-fg-subtle">
-              Classify as
-            </label>
-            <select
-              className="bg-bg-elevated border border-border rounded px-1.5 py-0.5 text-[11px] text-fg focus:outline-none focus:border-accent/60"
-              value={level}
-              onChange={(e) => setLevel(Number(e.target.value))}
-              disabled={uploading}
-            >
-              {Array.from({ length: maxLevel }, (_, i) => i + 1).map((lv) => (
-                <option key={lv} value={lv}>
-                  L{lv} · {LEVEL_TO_LABEL[lv]}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="text-[10.5px] text-fg-subtle leading-relaxed">
-            You can upload up to your own clearance. Others only see it if their level is ≥ this.
+          <div className="rounded-md border border-accent/25 bg-accent-soft px-3 py-2 text-[11.5px] leading-relaxed text-fg-muted">
+            <span className="font-semibold text-accent">Review-first upload.</span>{" "}
+            {user?.role === "employee" ? (
+              <>Your document will be visible to <b className="text-fg">Manager + Executive</b> for review. Executive can share it wider after reviewing.</>
+            ) : (
+              <>Your document will be visible to <b className="text-fg">Executive only</b> for review. Executive can share it with other roles after reviewing.</>
+            )}
           </div>
         </>
       )}

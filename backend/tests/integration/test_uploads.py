@@ -1,4 +1,9 @@
-"""Upload clearance-cap assertions.
+"""Upload visibility-escalation assertions.
+
+With the review-first model (2026-04-17):
+  - Guest/Manager uploads → RESTRICTED (L4, exec only)
+  - Employee uploads → CONFIDENTIAL (L3, manager + exec)
+  - Executive uploads → whatever they choose
 
 Prereqs: backend running on :8765 with seeded users. The tests use the real
 HTTP API end-to-end (httpx) so the FastAPI dependency + form validation is
@@ -31,13 +36,13 @@ def tiny_pdf() -> bytes:
     return p.read_bytes()
 
 
-def test_guest_upload_default_classification_succeeds(tiny_pdf: bytes) -> None:
-    """Guest (L1) uploads with default classification → stored as PUBLIC (level 1)."""
+def test_guest_upload_escalated_to_restricted(tiny_pdf: bytes) -> None:
+    """Guest (L1) uploads → escalated to RESTRICTED (L4), only exec can see."""
     tok = _login("guest", "guest_pass")
     r = httpx.post(
         f"{BASE}/api/documents",
         headers={"Authorization": f"Bearer {tok}"},
-        files={"files": ("test_guest_default.pdf", io.BytesIO(tiny_pdf), "application/pdf")},
+        files={"files": ("test_guest_esc.pdf", io.BytesIO(tiny_pdf), "application/pdf")},
         timeout=120,
     )
     assert r.status_code == 200, r.text
@@ -45,50 +50,93 @@ def test_guest_upload_default_classification_succeeds(tiny_pdf: bytes) -> None:
     assert body and body[0]["status"] == "ok"
     doc_id = body[0]["doc_id"]
 
-    # Verify it's visible to guest and classified as PUBLIC.
-    docs = httpx.get(f"{BASE}/api/documents", headers={"Authorization": f"Bearer {tok}"}).json()
-    found = [d for d in docs if d["doc_id"] == doc_id]
-    assert found and found[0]["classification"] == "PUBLIC", found
+    # NOT visible to guest (it's L4, they're L1).
+    gdocs = httpx.get(f"{BASE}/api/documents", headers={"Authorization": f"Bearer {tok}"}).json()
+    assert all(d["doc_id"] != doc_id for d in gdocs), "guest should NOT see their own escalated doc"
 
-    # cleanup — delete via manager
-    mtok = _login("manager", "manager_pass")
-    httpx.delete(f"{BASE}/api/documents/{doc_id}", headers={"Authorization": f"Bearer {mtok}"})
+    # Visible to exec as RESTRICTED.
+    etok = _login("exec", "exec_pass")
+    edocs = httpx.get(f"{BASE}/api/documents", headers={"Authorization": f"Bearer {etok}"}).json()
+    found = [d for d in edocs if d["doc_id"] == doc_id]
+    assert found and found[0]["classification"] == "RESTRICTED", f"exec should see RESTRICTED, got {found}"
+
+    # cleanup
+    httpx.delete(f"{BASE}/api/documents/{doc_id}", headers={"Authorization": f"Bearer {etok}"})
 
 
-def test_guest_upload_above_clearance_rejected(tiny_pdf: bytes) -> None:
-    """Guest (L1) tries classification=2 → 400."""
+def test_guest_classification_param_ignored(tiny_pdf: bytes) -> None:
+    """Guest passes classification=1 explicitly → ignored, still escalated to L4."""
     tok = _login("guest", "guest_pass")
     r = httpx.post(
         f"{BASE}/api/documents",
         headers={"Authorization": f"Bearer {tok}"},
-        files={"files": ("test_guest_bad.pdf", io.BytesIO(tiny_pdf), "application/pdf")},
-        data={"classification": "2"},
-        timeout=60,
-    )
-    assert r.status_code == 400, r.text
-
-
-def test_manager_upload_at_confidential_stored_correctly(tiny_pdf: bytes) -> None:
-    """Manager (L3) uploads classification=3 → stored as CONFIDENTIAL; not visible to L2."""
-    mtok = _login("manager", "manager_pass")
-    r = httpx.post(
-        f"{BASE}/api/documents",
-        headers={"Authorization": f"Bearer {mtok}"},
-        files={"files": ("test_manager_conf.pdf", io.BytesIO(tiny_pdf), "application/pdf")},
-        data={"classification": "3"},
+        files={"files": ("test_guest_ignored.pdf", io.BytesIO(tiny_pdf), "application/pdf")},
+        data={"classification": "1"},
         timeout=120,
     )
     assert r.status_code == 200, r.text
     doc_id = r.json()[0]["doc_id"]
 
-    # Visible to manager.
+    # Still NOT visible to guest.
+    gdocs = httpx.get(f"{BASE}/api/documents", headers={"Authorization": f"Bearer {tok}"}).json()
+    assert all(d["doc_id"] != doc_id for d in gdocs)
+
+    # cleanup
+    etok = _login("exec", "exec_pass")
+    httpx.delete(f"{BASE}/api/documents/{doc_id}", headers={"Authorization": f"Bearer {etok}"})
+
+
+def test_manager_upload_escalated_to_restricted(tiny_pdf: bytes) -> None:
+    """Manager (L3) uploads → escalated to RESTRICTED (L4), only exec sees."""
+    mtok = _login("manager", "manager_pass")
+    r = httpx.post(
+        f"{BASE}/api/documents",
+        headers={"Authorization": f"Bearer {mtok}"},
+        files={"files": ("test_mgr_esc.pdf", io.BytesIO(tiny_pdf), "application/pdf")},
+        data={"classification": "3"},  # ignored — escalated anyway
+        timeout=120,
+    )
+    assert r.status_code == 200, r.text
+    doc_id = r.json()[0]["doc_id"]
+
+    # NOT visible to manager (L4 > L3).
+    mdocs = httpx.get(f"{BASE}/api/documents", headers={"Authorization": f"Bearer {mtok}"}).json()
+    assert all(d["doc_id"] != doc_id for d in mdocs), "manager should NOT see escalated doc"
+
+    # Visible to exec.
+    etok = _login("exec", "exec_pass")
+    edocs = httpx.get(f"{BASE}/api/documents", headers={"Authorization": f"Bearer {etok}"}).json()
+    assert any(d["doc_id"] == doc_id and d["classification"] == "RESTRICTED" for d in edocs)
+
+    # cleanup
+    httpx.delete(f"{BASE}/api/documents/{doc_id}", headers={"Authorization": f"Bearer {etok}"})
+
+
+def test_employee_upload_escalated_to_confidential(tiny_pdf: bytes) -> None:
+    """Employee (L2) uploads → escalated to CONFIDENTIAL (L3), manager + exec see."""
+    etok = _login("employee", "employee_pass")
+    r = httpx.post(
+        f"{BASE}/api/documents",
+        headers={"Authorization": f"Bearer {etok}"},
+        files={"files": ("test_emp_esc.pdf", io.BytesIO(tiny_pdf), "application/pdf")},
+        timeout=120,
+    )
+    assert r.status_code == 200, r.text
+    doc_id = r.json()[0]["doc_id"]
+
+    # NOT visible to employee (L3 > L2).
+    edocs = httpx.get(f"{BASE}/api/documents", headers={"Authorization": f"Bearer {etok}"}).json()
+    assert all(d["doc_id"] != doc_id for d in edocs), "employee should NOT see escalated doc"
+
+    # Visible to manager (L3).
+    mtok = _login("manager", "manager_pass")
     mdocs = httpx.get(f"{BASE}/api/documents", headers={"Authorization": f"Bearer {mtok}"}).json()
     assert any(d["doc_id"] == doc_id and d["classification"] == "CONFIDENTIAL" for d in mdocs)
 
-    # NOT visible to employee.
-    etok = _login("employee", "employee_pass")
-    edocs = httpx.get(f"{BASE}/api/documents", headers={"Authorization": f"Bearer {etok}"}).json()
-    assert all(d["doc_id"] != doc_id for d in edocs)
+    # Visible to exec.
+    xtok = _login("exec", "exec_pass")
+    xdocs = httpx.get(f"{BASE}/api/documents", headers={"Authorization": f"Bearer {xtok}"}).json()
+    assert any(d["doc_id"] == doc_id for d in xdocs)
 
     # cleanup
-    httpx.delete(f"{BASE}/api/documents/{doc_id}", headers={"Authorization": f"Bearer {mtok}"})
+    httpx.delete(f"{BASE}/api/documents/{doc_id}", headers={"Authorization": f"Bearer {xtok}"})

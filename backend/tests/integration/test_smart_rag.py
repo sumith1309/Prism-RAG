@@ -104,7 +104,7 @@ def test_executive_truly_out_of_corpus_query_returns_general_or_refused() -> Non
     Both are correct; what we must NOT see is 'unknown' (exec should always
     get either a refusal diagnostic or a general-knowledge answer)."""
     tok = _login("exec", "exec_pass")
-    mode = _mode_for(tok, "asdhjkfgaw quantum encryption protocol xyz")
+    mode = _mode_for(tok, "xyzzy plugh zork frobnicate 42 banana sandwich")
     assert mode in {"general", "refused"}, f"exec out-of-corpus got {mode!r}"
 
 

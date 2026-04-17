@@ -71,21 +71,40 @@ async def upload_docs(
     disabled_for_roles: Optional[str] = Form(default=None),
     user: CurrentUser = Depends(get_current_user),
 ):
-    """Upload with clearance cap: 1 <= classification <= user.level; default = user.level.
+    """Upload with visibility escalation: non-exec uploads are auto-
+    elevated so the executive reviews them first.
+
+    Escalation rules:
+      - Guest/Intern uploads → RESTRICTED (L4, exec only)
+      - Employee uploads     → CONFIDENTIAL (L3, manager + exec)
+      - Manager uploads      → RESTRICTED (L4, exec only)
+      - Executive uploads    → whatever they choose (unchanged)
+
+    Exec can then reclassify downward via PATCH /visibility once they've
+    reviewed the content. This prevents a guest from uploading a doc
+    that ALL other guests can immediately see without review.
 
     ``disabled_for_roles`` (exec-only, comma-separated) lets the exec set
     per-role visibility at upload time. Silently dropped for non-exec
     users — they can't control visibility beyond clearance anyway.
     """
-    desired_level = int(classification) if classification is not None else int(user.level)
-    if desired_level < 1 or desired_level > int(user.level):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"classification must be between 1 and your clearance level "
-                f"({user.level}); got {desired_level}."
-            ),
-        )
+    # Escalation: non-exec uploads go UP, not stay flat.
+    _UPLOAD_ESCALATION: dict[str, int] = {
+        "guest": 4,      # → RESTRICTED (exec only)
+        "employee": 3,   # → CONFIDENTIAL (manager + exec)
+        "manager": 4,    # → RESTRICTED (exec only)
+    }
+    if user.role == "executive":
+        # Exec chooses freely — no escalation.
+        desired_level = int(classification) if classification is not None else int(user.level)
+        if desired_level < 1 or desired_level > 4:
+            raise HTTPException(
+                status_code=400,
+                detail=f"classification must be between 1 and 4; got {desired_level}.",
+            )
+    else:
+        # Non-exec: ignore their classification choice, escalate.
+        desired_level = _UPLOAD_ESCALATION.get(user.role, 4)
     # Parse + filter disabled_for_roles — only honored for exec uploads.
     disable_set: list[str] = []
     if disabled_for_roles and user.role == "executive":

@@ -334,16 +334,60 @@ def _load_text(path: Path) -> list[LCDocument]:
     return [LCDocument(page_content=c, metadata={"page": i + 1}) for i, c in enumerate(chunks)]
 
 
+def _compute_column_stats(headers: list[str], data_rows: list[list]) -> str:
+    """Pre-compute aggregate statistics for numeric columns.
+
+    Returns a natural-language summary block:
+      "Column Statistics Summary:
+       Bank Charges: count=76, total=8899.56, average=117.10, min=1.00, max=898.80
+       ..."
+
+    This chunk is placed at the start of the document so aggregation
+    queries ("total bank charges", "how many transactions") retrieve it
+    directly instead of trying to sum individual rows.
+    """
+    stats_lines = []
+    for j, header in enumerate(headers):
+        values: list[float] = []
+        for row in data_rows:
+            if j < len(row):
+                raw = row[j]
+                if raw is None:
+                    continue
+                # Try to parse as number
+                try:
+                    v = float(str(raw).replace(",", "").strip())
+                    values.append(v)
+                except (ValueError, TypeError):
+                    continue
+        if len(values) >= 3:  # need at least 3 numeric values to be meaningful
+            total = sum(values)
+            avg = total / len(values)
+            stats_lines.append(
+                f"{header}: count={len(values)}, total={total:.2f}, "
+                f"average={avg:.2f}, min={min(values):.2f}, max={max(values):.2f}"
+            )
+
+    if not stats_lines:
+        return ""
+
+    return "Column Statistics Summary (pre-computed from all rows):\n" + "\n".join(stats_lines)
+
+
 def _load_excel(path: Path) -> list[LCDocument]:
     """Load .xlsx/.xls — serialize each row as 'Header: Value' sentences.
 
     Multi-sheet workbooks produce one section per sheet. Row 1 of each
     sheet is treated as column headers. Empty rows are skipped.
+
+    A pre-computed statistics summary is prepended so aggregation queries
+    (total, count, average) retrieve accurate answers without needing
+    all rows in the context window.
     """
     import openpyxl
 
     wb = openpyxl.load_workbook(str(path), read_only=True, data_only=True)
-    parts: list[str] = []
+    docs: list[LCDocument] = []
 
     for sheet in wb.worksheets:
         rows = list(sheet.iter_rows(values_only=True))
@@ -354,6 +398,26 @@ def _load_excel(path: Path) -> list[LCDocument]:
         headers = [str(h).strip() if h is not None else f"Column {j+1}"
                    for j, h in enumerate(rows[0])]
 
+        # Pre-compute column statistics summary
+        data_rows = []
+        for row in rows[1:]:
+            data_rows.append(list(row))
+
+        stats_block = _compute_column_stats(headers, data_rows)
+        if stats_block:
+            sheet_prefix = f"Sheet: {sheet.title}\n\n" if len(wb.worksheets) > 1 else ""
+            row_count = len([r for r in data_rows if any(
+                v is not None and str(v).strip() for v in r
+            )])
+            summary = (
+                f"{sheet_prefix}"
+                f"This sheet contains {row_count} data rows with columns: "
+                f"{', '.join(headers)}.\n\n{stats_block}"
+            )
+            docs.append(LCDocument(page_content=summary, metadata={"page": 0}))
+
+        # Serialize individual rows
+        parts: list[str] = []
         if len(wb.worksheets) > 1:
             parts.append(f"Sheet: {sheet.title}")
 
@@ -370,23 +434,22 @@ def _load_excel(path: Path) -> list[LCDocument]:
             if row_parts:
                 parts.append(". ".join(row_parts) + ".")
 
-        parts.append("")  # blank line between sheets
+        text = "\n".join(parts).strip()
+        if text:
+            page_size = 3000
+            chunks = [text[i : i + page_size] for i in range(0, len(text), page_size)]
+            for i, chunk in enumerate(chunks):
+                docs.append(LCDocument(page_content=chunk, metadata={"page": i + 1}))
 
     wb.close()
-    text = "\n".join(parts).strip()
-    if not text:
-        return [LCDocument(page_content="", metadata={"page": 1})]
-
-    # Split into pseudo-pages (~3000 chars each)
-    page_size = 3000
-    chunks = [text[i : i + page_size] for i in range(0, len(text), page_size)] or [text]
-    return [LCDocument(page_content=c, metadata={"page": i + 1}) for i, c in enumerate(chunks)]
+    return docs or [LCDocument(page_content="", metadata={"page": 1})]
 
 
 def _load_csv(path: Path) -> list[LCDocument]:
     """Load .csv — serialize each row as 'Header: Value' sentences.
 
-    First row is treated as column headers.
+    First row is treated as column headers. A pre-computed statistics
+    summary is prepended for aggregation queries.
     """
     import csv
 
@@ -399,12 +462,22 @@ def _load_csv(path: Path) -> list[LCDocument]:
         return [LCDocument(page_content=text, metadata={"page": 1})]
 
     headers = [h.strip() or f"Column {j+1}" for j, h in enumerate(rows[0])]
-    parts: list[str] = []
+    data_rows = [row for row in rows[1:] if any(v.strip() for v in row)]
+    docs: list[LCDocument] = []
 
-    for row in rows[1:]:
+    # Pre-computed stats summary
+    stats_block = _compute_column_stats(headers, data_rows)
+    if stats_block:
+        summary = (
+            f"This file contains {len(data_rows)} data rows with columns: "
+            f"{', '.join(headers)}.\n\n{stats_block}"
+        )
+        docs.append(LCDocument(page_content=summary, metadata={"page": 0}))
+
+    # Serialize individual rows
+    parts: list[str] = []
+    for row in data_rows:
         cells = [v.strip() for v in row]
-        if not any(cells):
-            continue
         row_parts = []
         for j, cell_val in enumerate(cells):
             if not cell_val:
@@ -415,12 +488,13 @@ def _load_csv(path: Path) -> list[LCDocument]:
             parts.append(". ".join(row_parts) + ".")
 
     text = "\n".join(parts).strip()
-    if not text:
-        return [LCDocument(page_content="", metadata={"page": 1})]
+    if text:
+        page_size = 3000
+        chunks = [text[i : i + page_size] for i in range(0, len(text), page_size)]
+        for i, chunk in enumerate(chunks):
+            docs.append(LCDocument(page_content=chunk, metadata={"page": i + 1}))
 
-    page_size = 3000
-    chunks = [text[i : i + page_size] for i in range(0, len(text), page_size)] or [text]
-    return [LCDocument(page_content=c, metadata={"page": i + 1}) for i, c in enumerate(chunks)]
+    return docs or [LCDocument(page_content="", metadata={"page": 1})]
 
 
 SUPPORTED_EXTS = {".pdf", ".docx", ".txt", ".md", ".markdown", ".xlsx", ".xls", ".csv"}

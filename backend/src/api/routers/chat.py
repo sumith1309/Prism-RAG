@@ -70,6 +70,20 @@ def _is_substantive_query(q: str) -> bool:
     return len(tokens) >= 2
 
 
+_AGGREGATION_KEYWORDS = {
+    "total", "sum", "count", "how many", "average", "avg", "minimum",
+    "maximum", "grand total", "all", "overall", "entire", "complete",
+    "aggregate", "combined", "cumulative", "net", "gross",
+}
+
+
+def _is_aggregation_query(q: str) -> bool:
+    """Detect queries that need data across many rows (totals, counts, etc.).
+    These need higher top_k because the answer spans the whole dataset."""
+    q_lower = q.lower()
+    return any(kw in q_lower for kw in _AGGREGATION_KEYWORDS)
+
+
 # Social inputs the agent should answer with a warm greeting instead of
 # running retrieval. Kept small and high-precision — anything richer should
 # go through RAG. Matched on the *whole* query (case-insensitive, trimmed).
@@ -1778,6 +1792,15 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                     # the LLM rewrites help bridge vocabulary gaps.
                     if not req.use_multi_query:
                         req.use_multi_query = True
+
+                # ── 2d. Aggregation boost ────────────────────────────────
+                # Queries asking for totals/counts/averages need more
+                # chunks than usual — the pre-computed stats summary
+                # chunk plus supporting rows. Boost top_k so the
+                # summary chunk (which scores high on "total"/"count")
+                # plus context rows all make it through.
+                if _is_aggregation_query(search_query):
+                    req.top_k = max(req.top_k, 15)
 
                 # ── 3. Multi-query retrieval (parallel fan-out, opt-in) ───
                 from src.pipelines.retrieval_pipeline import _is_recency_sensitive

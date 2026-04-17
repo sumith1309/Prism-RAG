@@ -1,7 +1,7 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { motion } from "framer-motion";
-import { Clock, HelpCircle, Info, ShieldAlert, Sparkles, User } from "lucide-react";
+import { Clock, HelpCircle, Info, Layers, ShieldAlert, Sparkles, User } from "lucide-react";
 import type { ChatMessage } from "@/types";
 import { cn } from "@/lib/utils";
 import { AccessRequestBanner } from "./AccessRequestBanner";
@@ -253,6 +253,15 @@ export function MessageBubble({
                   >
                     <Clock className="w-3 h-3" strokeWidth={2.25} />
                     Newer first
+                  </span>
+                )}
+                {message.topkExpanded && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full border border-accent/30 bg-accent-soft px-2 py-[3px] text-[10.5px] font-semibold text-accent"
+                    title={`Compound query detected (${message.topkExpanded.subQuestions} sub-questions). Auto-expanded retrieval from ${message.topkExpanded.from} → ${message.topkExpanded.to} chunks so each sub-part gets covered.`}
+                  >
+                    <Layers className="w-3 h-3" strokeWidth={2.25} />
+                    +{message.topkExpanded.to - message.topkExpanded.from} chunks
                   </span>
                 )}
               </div>

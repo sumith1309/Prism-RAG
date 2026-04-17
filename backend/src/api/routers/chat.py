@@ -389,6 +389,108 @@ def _looks_like_followup(query: str) -> bool:
     return False
 
 
+# ─── Compound-question detection (Tier 1 follow-up: recall improvement) ─
+# Sumith's evaluation (2026-04-16): faithfulness is perfect (zero
+# hallucinations, every cited fact accurate) — but compound questions
+# with 5 sub-parts can't fit in top_k=5 chunks, so half the sub-
+# questions return "context does not provide" even though the answer
+# IS in the corpus. Fix: detect compound queries and auto-expand
+# top_k for retrieval. Simple questions stay at the base (fast, cheap).
+_COMPOUND_CONJUNCTIONS = (
+    " and ", " plus ", " as well as ", " along with ", " together with ",
+    "; ", ", and ", ", or ", " or ",
+)
+_ENUMERATION_PATTERNS = (
+    re.compile(
+        r"\b(two|three|four|five|six|seven|eight|nine|ten|\d+)\s+"
+        r"(?:things|points|items|reasons|steps|aspects|components|"
+        r"factors|parts|questions|sub[- ]?questions|areas|bullets)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\b(?:list|enumerate|break\s+down|decompose)\b", re.IGNORECASE),
+)
+_NUMBER_WORDS = {
+    "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+    "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+}
+
+
+def _estimate_subquestions(query: str) -> int:
+    """Rough count of sub-questions packed into one user turn.
+
+    Heuristics (stacked — compound asks can score high):
+      - Each question-word beyond the first (what/how/why/when/where/who)
+      - Each conjunction separating topics (" and ", ", or ", etc.)
+      - Enumeration cues ("five points", "list the N things"): counts
+        the stated N directly.
+      - Long queries (>25 words, >45 words): +1, +2.
+
+    Plain "What is X?" → 1. Long multi-clause compound → 4-6+.
+    """
+    if not query or not query.strip():
+        return 1
+    q = query.lower()
+    count = 1
+
+    qwords = re.findall(
+        r"\b(what|how|why|when|where|who|which|whose|whom)\b", q
+    )
+    count += max(0, len(qwords) - 1)
+
+    for sep in _COMPOUND_CONJUNCTIONS:
+        count += q.count(sep)
+
+    # Colon-then-enumeration pattern: "tell me X: a, b, c, d" — every
+    # comma after a colon is a distinct sub-part. Cap the contribution
+    # at 6 to avoid exploding on natural comma-rich prose.
+    colon_idx = q.find(":")
+    if colon_idx >= 0 and colon_idx < len(q) - 1:
+        tail = q[colon_idx + 1:]
+        commas = tail.count(",")
+        if commas >= 1:
+            count += min(6, commas)
+
+    for pat in _ENUMERATION_PATTERNS:
+        m = pat.search(q)
+        if not m:
+            continue
+        groups = m.groups() if m.groups() else ()
+        n_token = (groups[0] if groups and groups[0] else "").lower()
+        n: int | None = None
+        if n_token and n_token.isdigit():
+            try:
+                n = int(n_token)
+            except ValueError:
+                n = None
+        if n is None:
+            n = _NUMBER_WORDS.get(n_token, 3)
+        count += max(2, n - 1)
+
+    word_count = len(q.split())
+    if word_count > 25:
+        count += 1
+    if word_count > 45:
+        count += 2
+
+    return max(1, count)
+
+
+def _expanded_top_k(base_top_k: int, sub_questions: int) -> int:
+    """Auto-expand top_k for compound questions. Each additional sub-
+    question adds ~2 chunks of headroom so the LLM has enough context
+    per sub-part. Capped at 12 to bound latency + prompt tokens.
+
+    base=5, sub=1 → 5   (simple question — no change)
+    base=5, sub=3 → 9
+    base=5, sub=5 → 12  (capped)
+    """
+    if sub_questions <= 1:
+        return base_top_k
+    bumped = base_top_k + (sub_questions - 1) * 2
+    return min(12, max(base_top_k, bumped))
+
+
+
 def _budget_history(history, *, max_chars: int, max_turns: int) -> list:
     """Walk history newest-first, accumulating turns until either the char
     budget or turn cap is hit, then return them in chronological order. This
@@ -1515,10 +1617,30 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                 # "Q4 2024", etc.), ask retrieval to boost newer docs.
                 from src.pipelines.retrieval_pipeline import _is_recency_sensitive
                 prefer_recent = _is_recency_sensitive(search_query)
+
+                # Sumith's eval feedback (2026-04-16): top_k=5 is too
+                # small for compound multi-part questions — half the
+                # sub-questions fall off the shortlist even though the
+                # answer IS in the corpus. Auto-expand top_k when the
+                # query looks compound. Simple questions stay at base
+                # top_k for speed.
+                sub_q_count = _estimate_subquestions(search_query)
+                original_top_k = req.top_k
+                if sub_q_count > 1:
+                    req.top_k = _expanded_top_k(req.top_k, sub_q_count)
                 chunks, retrieve_ms = await _retrieve_multi(
                     queries, user.level, req, caller_role=user.role,
                     prefer_recent=prefer_recent,
                 )
+                if req.top_k != original_top_k:
+                    yield {
+                        "event": "topk_expanded",
+                        "data": json.dumps({
+                            "from": original_top_k,
+                            "to": req.top_k,
+                            "sub_questions": sub_q_count,
+                        }),
+                    }
                 if prefer_recent:
                     yield {
                         "event": "recency_boost",

@@ -81,6 +81,13 @@ export interface ChatMessage {
   // Tier 3.3: true when retrieval applied a recency boost (query had
   // "latest", "Q4 2024", etc.). Renders a small "newer-first" chip.
   recencyBoostApplied?: boolean;
+  // Compound-question auto-expansion: top_k was bumped because the
+  // query has multiple sub-parts. Renders a small "+N chunks" chip.
+  topkExpanded?: {
+    from: number;
+    to: number;
+    subQuestions: number;
+  };
   corrective_rewrite?: string;
   contextualized_query?: string;
   welcome?: WelcomePayload;

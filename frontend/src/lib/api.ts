@@ -367,6 +367,7 @@ export interface ChatStreamCallbacks {
   onCitationCheck?: (check: CitationCheck) => void;
   onComparison?: (query: string, columns: ComparisonColumn[]) => void;
   onRecencyBoost?: () => void;
+  onTopKExpanded?: (from: number, to: number, subQuestions: number) => void;
   onDone: (answerMode: string, thread_id: string, meta: DoneMeta) => void;
   onError: (message: string) => void;
 }
@@ -447,6 +448,13 @@ export async function streamChat(
           break;
         case "recency_boost":
           callbacks.onRecencyBoost?.();
+          break;
+        case "topk_expanded":
+          callbacks.onTopKExpanded?.(
+            data.from || 5,
+            data.to || 5,
+            data.sub_questions || 1
+          );
           break;
         case "done":
           callbacks.onDone(data.answer_mode || "grounded", data.thread_id || "", {

@@ -344,6 +344,14 @@ export function useChatStream() {
                     : m
                 )
               ),
+            onTopKExpanded: (from, to, subQuestions) =>
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMsg.id
+                    ? { ...m, topkExpanded: { from, to, subQuestions } }
+                    : m
+                )
+              ),
             onDone: (answerMode, thread_id, meta) => {
               const finalMode = (answerMode as AnswerMode) || "grounded";
               // Backend can demote grounded → unknown post-generation when the

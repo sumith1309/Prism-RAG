@@ -27,6 +27,7 @@ from src.api.routers.welcome import build_welcome_payload
 from src.auth.dependencies import CurrentUser
 from src.core import chat_cache, models
 from src.core.prompts import (
+    COMPOUND_DECOMPOSE_PROMPT,
     CONTEXTUALIZE_PROMPT,
     CORRECTIVE_PROMPT,
     FAITHFULNESS_PROMPT,
@@ -555,6 +556,46 @@ async def _contextualize_query(query: str, history) -> str:
         return query
 
 
+async def _decompose_compound(query: str) -> list[str]:
+    """Split a compound question into independent sub-questions for
+    parallel retrieval. Each sub-question is a standalone search query.
+
+    Production RAG architecture: instead of one retrieval pass where
+    the dominant topic buries the niche sub-parts (e.g. "engineering
+    cost" dominates, "salary bands" gets no chunks), we retrieve for
+    each sub-question independently, merge + dedup the chunk sets,
+    rerank the union, and generate from the combined context.
+
+    Returns the original query as a single-item list on failure — the
+    pipeline falls back to normal single-pass retrieval.
+    """
+    try:
+        txt = await asyncio.wait_for(
+            _complete_chat(
+                [
+                    {
+                        "role": "user",
+                        "content": COMPOUND_DECOMPOSE_PROMPT.format(query=query),
+                    }
+                ],
+                max_tokens=300,
+                temperature=0.1,
+            ),
+            timeout=8.0,
+        )
+        lines = [
+            line.strip().lstrip("0123456789.-) ").strip()
+            for line in (txt or "").strip().split("\n")
+            if line.strip() and len(line.strip()) > 5
+        ]
+        if not lines:
+            return [query]
+        # Cap at 8 sub-questions to bound retrieval cost.
+        return lines[:8]
+    except Exception:
+        return [query]
+
+
 async def _corrective_rewrite(query: str) -> str:
     try:
         txt = await asyncio.wait_for(
@@ -846,7 +887,10 @@ async def _stream_grounded(query, chunks, history):
         messages.append({"role": m.role, "content": m.content})
     context = build_context_block(chunks)
     messages.append({"role": "user", "content": build_user_prompt(query, context)})
-    async for delta in _stream_chat(messages, max_tokens=600, temperature=0.2):
+    # More chunks → longer answer needed. Scale max_tokens with chunk
+    # count so compound 12-chunk answers don't get truncated mid-sentence.
+    max_tok = 600 if len(chunks) <= 6 else min(1200, 600 + len(chunks) * 50)
+    async for delta in _stream_chat(messages, max_tokens=max_tok, temperature=0.2):
         yield delta
 
 
@@ -1609,44 +1653,93 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                         }
 
                 # ── 3. Multi-query retrieval (parallel fan-out, opt-in) ───
-                if req.use_multi_query:
-                    queries = await _multi_query(search_query)
-                else:
-                    queries = [search_query]
-                # Tier 3.3 — if the query is recency-sensitive ("latest",
-                # "Q4 2024", etc.), ask retrieval to boost newer docs.
                 from src.pipelines.retrieval_pipeline import _is_recency_sensitive
                 prefer_recent = _is_recency_sensitive(search_query)
 
-                # Sumith's eval feedback (2026-04-16): top_k=5 is too
-                # small for compound multi-part questions — half the
-                # sub-questions fall off the shortlist even though the
-                # answer IS in the corpus. Auto-expand top_k when the
-                # query looks compound. Simple questions stay at base
-                # top_k for speed.
-                #
-                # IMPORTANT: estimate on the ORIGINAL query, NOT
-                # search_query — contextualization collapses 5-part
-                # questions into 1-liners, which defeats the compound
-                # detector entirely. The original preserves all the
-                # user's sub-parts.
+                # Estimate sub-question count on the ORIGINAL query
+                # (not search_query — contextualization collapses
+                # compound queries into 1-liners).
                 sub_q_count = _estimate_subquestions(req.query)
                 original_top_k = req.top_k
-                if sub_q_count > 1:
-                    req.top_k = _expanded_top_k(req.top_k, sub_q_count)
-                chunks, retrieve_ms = await _retrieve_multi(
-                    queries, user.level, req, caller_role=user.role,
-                    prefer_recent=prefer_recent,
-                )
-                if req.top_k != original_top_k:
+
+                # ── Production compound-query path ─────────────────
+                # When ≥3 sub-parts detected: decompose → retrieve
+                # per sub-question independently → merge + dedup →
+                # rerank the union. This is the architecturally correct
+                # fix for the eval gap: "salary bands" as a standalone
+                # query WILL hit Salary_Structure.pdf, whereas
+                # embedded inside "engineering cost overruns..." it
+                # gets buried by the dominant topic's embedding.
+                if sub_q_count >= 3:
+                    sub_questions = await _decompose_compound(req.query)
+                    yield {
+                        "event": "decomposed",
+                        "data": json.dumps({
+                            "sub_questions": sub_questions,
+                            "count": len(sub_questions),
+                        }),
+                    }
+                    # Retrieve for EACH sub-question in parallel.
+                    # Use base top_k per sub-query (not expanded —
+                    # expansion is implicit via N parallel passes).
+                    req.top_k = 5  # per-sub-query top_k
+                    all_chunk_lists: list[list] = []
+                    t_r = time.perf_counter()
+                    sub_results = await asyncio.gather(
+                        *[
+                            _retrieve_with_timing(
+                                sq, user.level, req,
+                                caller_role=user.role,
+                                prefer_recent=prefer_recent,
+                            )
+                            for sq in sub_questions
+                        ],
+                        return_exceptions=True,
+                    )
+                    for r in sub_results:
+                        if isinstance(r, Exception) or r is None:
+                            continue
+                        sub_chunks, _ = r
+                        if sub_chunks:
+                            all_chunk_lists.append(sub_chunks)
+                    retrieve_ms = int((time.perf_counter() - t_r) * 1000)
+
+                    # Merge + dedup by (doc_id, chunk_index).
+                    if all_chunk_lists:
+                        chunks = _merge_chunks_rrf(all_chunk_lists)[:12]
+                    else:
+                        chunks = []
+                    req.top_k = original_top_k  # restore for later use
+
                     yield {
                         "event": "topk_expanded",
                         "data": json.dumps({
                             "from": original_top_k,
-                            "to": req.top_k,
+                            "to": len(chunks),
                             "sub_questions": sub_q_count,
                         }),
                     }
+                else:
+                    # Simple / 2-part query — single-pass retrieval.
+                    if req.use_multi_query:
+                        queries = await _multi_query(search_query)
+                    else:
+                        queries = [search_query]
+                    if sub_q_count > 1:
+                        req.top_k = _expanded_top_k(req.top_k, sub_q_count)
+                    chunks, retrieve_ms = await _retrieve_multi(
+                        queries, user.level, req, caller_role=user.role,
+                        prefer_recent=prefer_recent,
+                    )
+                    if req.top_k != original_top_k:
+                        yield {
+                            "event": "topk_expanded",
+                            "data": json.dumps({
+                                "from": original_top_k,
+                                "to": req.top_k,
+                                "sub_questions": sub_q_count,
+                            }),
+                        }
                 if prefer_recent:
                     yield {
                         "event": "recency_boost",

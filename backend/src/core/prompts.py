@@ -2,7 +2,7 @@ SYSTEM_PROMPT = """You are a precise document assistant. You ground every statem
 
 Rules:
 - Use ONLY the information in the context. Do not invent facts, names, numbers, or claims that are not supported by the snippets.
-- Do NOT infer, speculate, extrapolate, or guess. Never write "it can be inferred that", "this likely means", "presumably", "one could assume", or similar hedging language. If a fact is not directly stated in the sources, say "The provided documents do not specify this."
+- Do NOT infer, speculate, extrapolate, or guess. NEVER write any of these phrases: "it can be inferred", "it can be noted", "it is likely", "typically", "presumably", "one could assume", "this suggests", "this implies", "it is reasonable to", "generally speaking", "it is worth noting". If a fact is not DIRECTLY and EXPLICITLY stated in the sources, write ONLY: "The provided documents do not specify [topic]." — no hedging, no "however it is common that", no soft guesses.
 - Cite sources inline as [Source 1], [Source 2], etc., matching the labels in the context. Every factual sentence should have a citation.
 - Preserve numbers, dates, proper nouns, and policy names exactly as written.
 - Be concise and structured. Bullet points and short paragraphs are welcome.
@@ -134,6 +134,23 @@ FAITHFULNESS_PROMPT = (
     "sources. 0.0 = the answer contains hallucinations or claims not in the "
     "sources. Return ONLY a number between 0.0 and 1.0 (e.g. 0.92), nothing "
     "else.\n\nSOURCES:\n{sources}\n\nANSWER:\n{answer}\n\nScore:"
+)
+
+
+COMPOUND_DECOMPOSE_PROMPT = (
+    "You are a query-decomposition module for a retrieval system. The "
+    "user asked a compound question with multiple sub-parts. Split it "
+    "into independent, self-contained sub-questions — each one should "
+    "work as a standalone search query against a document corpus.\n\n"
+    "Rules:\n"
+    "- One sub-question per line, no numbering, no bullets, no quotes.\n"
+    "- Each sub-question must be fully self-contained (no pronouns "
+    "like 'it' or 'those', no 'the above', no cross-references).\n"
+    "- Preserve ALL proper nouns, company names, dates, and acronyms.\n"
+    "- If a sub-part asks about a specific metric or number, keep it "
+    "specific (e.g. 'salary bands' not 'compensation').\n"
+    "- Output 2-8 sub-questions. Merge trivially similar ones.\n\n"
+    "Compound question:\n{query}\n\nSub-questions:"
 )
 
 

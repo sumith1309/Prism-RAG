@@ -1,8 +1,84 @@
+import re
 from pathlib import Path
 from typing import Iterable
 
 from langchain_core.documents import Document as LCDocument
 from langchain_community.document_loaders import PyPDFLoader
+
+
+# ─── Table-aware text preprocessing ─────────────────────────────────────────
+# Tables in PDFs/DOCX often get chunked into orphaned rows that lose their
+# column headers. "JWT (httpOnly cookies)" becomes meaningless without knowing
+# it's in the "Authentication" row under "Technology Stack". Fix: detect
+# table-like structures and serialize each row as a natural-language sentence
+# BEFORE the text splitter runs.
+#
+# Pattern detected: lines with | separators (markdown tables) or consistent
+# tab/multi-space alignment. We convert:
+#   | Layer | Technology |
+#   | Authentication | JWT (httpOnly cookies) |
+# Into:
+#   "Layer: Authentication. Technology: JWT (httpOnly cookies)."
+
+_TABLE_ROW_RE = re.compile(r"^\s*\|(.+)\|\s*$")
+_TABLE_SEP_RE = re.compile(r"^\s*\|[\s\-:|]+\|\s*$")  # separator like |---|---|
+
+
+def _serialize_tables(text: str) -> str:
+    """Convert markdown-style tables into natural-language sentences so
+    table cells retain their column-header context after chunking.
+
+    Non-table text passes through unchanged. Multiple tables in one
+    document are handled independently.
+    """
+    lines = text.split("\n")
+    result: list[str] = []
+    i = 0
+
+    while i < len(lines):
+        line = lines[i]
+
+        # Detect table start: a line with | separators.
+        if _TABLE_ROW_RE.match(line):
+            # Collect the full table.
+            table_lines: list[str] = []
+            while i < len(lines) and (_TABLE_ROW_RE.match(lines[i]) or _TABLE_SEP_RE.match(lines[i])):
+                if not _TABLE_SEP_RE.match(lines[i]):  # skip separator rows
+                    table_lines.append(lines[i])
+                i += 1
+
+            if len(table_lines) >= 2:
+                # First row = headers, rest = data rows.
+                headers = [
+                    h.strip() for h in table_lines[0].split("|") if h.strip()
+                ]
+                for row_line in table_lines[1:]:
+                    cells = [c.strip() for c in row_line.split("|") if c.strip()]
+                    # Build sentence: "Header1: Cell1. Header2: Cell2."
+                    parts = []
+                    for j, cell in enumerate(cells):
+                        header = headers[j] if j < len(headers) else f"Column {j+1}"
+                        parts.append(f"{header}: {cell}")
+                    sentence = ". ".join(parts) + "."
+                    result.append(sentence)
+                result.append("")  # blank line after serialized table
+            else:
+                # Single-row "table" — just pass through.
+                for tl in table_lines:
+                    result.append(tl)
+                i += 1
+        else:
+            result.append(line)
+            i += 1
+
+    return "\n".join(result)
+
+
+def _preprocess_text(text: str) -> str:
+    """Run all text preprocessing steps before chunking.
+    Currently: table serialization. Extensible for future transforms.
+    """
+    return _serialize_tables(text)
 
 
 # Tier 2.1 — minimum chars per page below which we suspect a scanned PDF.
@@ -66,7 +142,12 @@ def _load_pdf(path: Path) -> list[LCDocument]:
     if needs_ocr:
         ocr_docs = _ocr_pdf(path)
         if ocr_docs:
-            return ocr_docs
+            docs = ocr_docs
+
+    # Table-aware preprocessing: serialize tables into natural-language
+    # sentences so table rows retain column-header context after chunking.
+    for d in docs:
+        d.page_content = _preprocess_text(d.page_content or "")
     return docs
 
 
@@ -98,7 +179,7 @@ def _load_docx(path: Path) -> list[LCDocument]:
     each paragraph as a page and produced hundreds of fake pages."""
     import docx2txt
 
-    text = (docx2txt.process(str(path)) or "").strip()
+    text = _preprocess_text((docx2txt.process(str(path)) or "").strip())
     if not text:
         return [LCDocument(page_content="", metadata={"page": 1})]
 
@@ -133,7 +214,7 @@ def _load_docx(path: Path) -> list[LCDocument]:
 
 
 def _load_text(path: Path) -> list[LCDocument]:
-    text = path.read_text(encoding="utf-8", errors="ignore")
+    text = _preprocess_text(path.read_text(encoding="utf-8", errors="ignore"))
     # split into ~3000-char pseudo-pages so retrieval scores reference a stable page number
     page_size = 3000
     chunks = [text[i : i + page_size] for i in range(0, len(text), page_size)] or [text]

@@ -375,105 +375,117 @@ def _compute_column_stats(headers: list[str], data_rows: list[list]) -> str:
 
 
 def _build_cross_sheet_summary(wb) -> str:
-    """For multi-sheet workbooks where each sheet represents an entity
-    (employee, product, account), build a cross-sheet comparison table.
+    """For multi-sheet workbooks where each sheet represents an entity,
+    build a cross-sheet comparison table.
 
-    Detects metadata in header rows (employee name, department, gender, ID)
-    and summary/statistics rows, then assembles a single retrievable block
-    like:
-      "Cross-sheet summary (66 sheets):
-       Employee: Sayed Arfas Abdul Sathar. ID: 103. Gender: Male. Department: Sales. Total Time: 157:50.
-       Employee: Kunhimoideen Ambadath. ID: 104. Gender: Male. Department: Operations. Total Time: 99:40.
-       ..."
+    Works generically on any multi-sheet workbook:
+    1. Extracts metadata from header rows (rows before the data table)
+       — key:value patterns like "Employee: Name" or free text labels
+    2. Finds the data header row (first row with 3+ non-empty cells)
+    3. Finds statistics/summary rows at the bottom
+    4. Builds a one-line-per-sheet summary with all extracted info
 
-    This enables cross-entity queries: "who has the highest time?",
-    "how many females in Operations?", "total time for Eslam?"
+    Also detects repeated categorical values across sheets and produces
+    group counts (e.g. "By Department: Sales: 40, Finance: 9").
     """
-    # Pattern: row 2 often has metadata like "Employee: Name,,Gender [ID] ... Department: X"
-    _META_RE = re.compile(
+    # Known metadata patterns: "Key: Value" in header rows
+    _KV_RE = re.compile(r"([A-Za-z][\w\s]{1,25}):\s*(.+)")
+    # Employee-specific pattern (common in HR exports)
+    _EMP_RE = re.compile(
         r"Employee:\s*(.+?)(?:,,|\s*,\s*)(\w*)\s*\[(\d+)\].*?Department:\s*(\w[\w\s]*?)(?:\[|$)",
         re.IGNORECASE,
     )
 
     entries: list[str] = []
+    # Track categorical values for group counts
+    category_counts: dict[str, dict[str, int]] = {}
+
     for sheet in wb.worksheets:
         rows = list(sheet.iter_rows(values_only=True))
-        if len(rows) < 3:
+        if len(rows) < 2:
             continue
 
-        # Try to extract metadata from header rows (rows 0-3)
-        name = gender = emp_id = department = ""
-        for row in rows[:4]:
+        # Find the data header row (first row with 3+ non-empty cells)
+        header_idx = 0
+        for idx, row in enumerate(rows[:6]):
+            non_empty = sum(1 for v in row if v is not None and str(v).strip())
+            if non_empty >= 3:
+                header_idx = idx
+                break
+
+        # Extract metadata from rows above the header
+        meta: dict[str, str] = {}
+        for row in rows[:header_idx]:
             for cell in row:
                 if cell is None:
                     continue
                 text = str(cell).strip()
-                m = _META_RE.search(text)
+                if not text:
+                    continue
+
+                # Try employee-specific pattern first
+                m = _EMP_RE.search(text)
                 if m:
-                    name = m.group(1).strip().rstrip(",")
-                    gender = m.group(2).strip()
-                    emp_id = m.group(3).strip()
-                    department = m.group(4).strip()
-                    break
-            if name:
-                break
+                    meta["Employee"] = m.group(1).strip().rstrip(",")
+                    if m.group(2).strip():
+                        meta["Gender"] = m.group(2).strip()
+                    meta["ID"] = m.group(3).strip()
+                    meta["Department"] = m.group(4).strip()
+                    continue
 
-        if not name:
-            continue
+                # Generic key:value patterns
+                m2 = _KV_RE.match(text)
+                if m2:
+                    key = m2.group(1).strip()
+                    val = m2.group(2).strip()
+                    if val and len(val) < 100:  # skip very long values
+                        meta[key] = val
+                elif len(text) < 80 and text not in meta.values():
+                    # Free text label — use as a title/identifier
+                    if "Title" not in meta:
+                        meta["Title"] = text
 
-        # Find statistics/summary row (usually last row with "Statistics" or "Total")
-        stats = {}
+        # Find statistics/summary row at the bottom
+        stats: dict[str, str] = {}
+        hdrs = [str(h).strip() if h else "" for h in rows[header_idx]]
         for row in reversed(rows):
             first_cell = str(row[0]).strip().lower() if row[0] else ""
             if first_cell in ("statistics", "total", "totals", "summary", "grand total"):
-                # Find the data header row — the one with 3+ non-empty cells
-                # that isn't a title row (skip rows with mostly empty cells)
-                for hdr_row in rows[:6]:
-                    hdrs = [str(h).strip() if h else "" for h in hdr_row]
-                    non_empty = sum(1 for h in hdrs if h)
-                    if non_empty >= 3:
-                        for j, val in enumerate(row):
-                            if val and j < len(hdrs) and hdrs[j] and j > 0:
-                                stats[hdrs[j]] = str(val).strip()
-                        break
+                for j, val in enumerate(row):
+                    if val and j < len(hdrs) and hdrs[j] and j > 0:
+                        stats[hdrs[j]] = str(val).strip()
                 break
 
-        # Build the entry line
-        parts = [f"Employee: {name}"]
-        if emp_id:
-            parts.append(f"ID: {emp_id}")
-        if gender:
-            parts.append(f"Gender: {gender}")
-        if department:
-            parts.append(f"Department: {department}")
-        parts.append(f"Sheet: {sheet.title}")
+        # Build entry — combine metadata + sheet name + stats
+        parts = []
+        for k, v in meta.items():
+            parts.append(f"{k}: {v}")
+            # Track categories for group counts
+            if k in ("Department", "Gender", "Category", "Region", "Type", "Status",
+                      "Team", "Division", "Group", "Class", "Level"):
+                if k not in category_counts:
+                    category_counts[k] = {}
+                category_counts[k][v] = category_counts[k].get(v, 0) + 1
+
+        if not parts:
+            # No metadata found — use sheet name as identifier
+            parts.append(f"Sheet: {sheet.title}")
+        else:
+            parts.append(f"Sheet: {sheet.title}")
+
         for k, v in stats.items():
-            if v and k.lower() != "statistics":
-                parts.append(f"{k}: {v}")
+            parts.append(f"{k}: {v}")
+
         entries.append(". ".join(parts) + ".")
 
     if len(entries) < 2:
         return ""
 
-    # Count by department and gender for quick lookups
-    dept_counts: dict[str, int] = {}
-    gender_counts: dict[str, int] = {}
-    for entry in entries:
-        for part in entry.split(". "):
-            if part.startswith("Department: "):
-                dept = part.split(": ", 1)[1].rstrip(".")
-                dept_counts[dept] = dept_counts.get(dept, 0) + 1
-            if part.startswith("Gender: "):
-                g = part.split(": ", 1)[1].rstrip(".")
-                gender_counts[g] = gender_counts.get(g, 0) + 1
-
+    # Build the summary header with group counts
     summary_parts = [f"Cross-sheet summary ({len(entries)} entities):"]
-    if dept_counts:
-        dept_str = ", ".join(f"{k}: {v}" for k, v in sorted(dept_counts.items()))
-        summary_parts.append(f"By department: {dept_str}.")
-    if gender_counts:
-        gender_str = ", ".join(f"{k}: {v}" for k, v in sorted(gender_counts.items()))
-        summary_parts.append(f"By gender: {gender_str}.")
+    for cat_name, counts in sorted(category_counts.items()):
+        count_str = ", ".join(f"{k}: {v}" for k, v in sorted(counts.items()))
+        summary_parts.append(f"By {cat_name.lower()}: {count_str}.")
     summary_parts.append("")
     summary_parts.extend(entries)
 

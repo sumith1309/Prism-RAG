@@ -87,7 +87,7 @@ export const useAppStore = create<AppState>((set) => ({
     useMultiQuery: false,
     useCorrective: true,
     useFaithfulness: true,
-    topK: 5,
+    topK: 8,
     sectionFilter: [],
   },
   updateSettings: (patch) => set((s) => ({ settings: { ...s.settings, ...patch } })),

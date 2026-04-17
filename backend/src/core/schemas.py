@@ -60,7 +60,7 @@ class ChatRequest(BaseModel):
     use_faithfulness: bool = True  # LLM-judge answer vs sources (adds 1-3s)
     section_filter: Optional[list[str]] = None
     history: list[ChatMessage] = Field(default_factory=list)
-    top_k: int = 5
+    top_k: int = 8  # bumped from 5 — consistent eval feedback shows 5 chunks too few
     thread_id: Optional[str] = None  # None = create new thread on first turn
     # Agent-mode controls:
     # ``preferred_doc_id`` — hard-scope retrieval to a single document.

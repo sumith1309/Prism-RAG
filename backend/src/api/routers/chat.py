@@ -475,6 +475,21 @@ def _estimate_subquestions(query: str) -> int:
         if commas >= 1:
             count += min(6, commas)
 
+    # Exhaustive-answer cues: queries asking "what else", "beyond X",
+    # "apart from", "other than", "in addition to" — these LOOK simple
+    # (1 question word) but need full corpus coverage to enumerate all
+    # matching content. Force decomposition so the LLM splits into
+    # targeted sub-queries that each find different chunks.
+    _EXHAUSTIVE_CUES = (
+        "what else", "what other", "what all", "anything else",
+        "everything else", "beyond", "apart from", "other than",
+        "in addition to", "besides", "aside from", "not just",
+        "more than just", "all the", "complete list", "full list",
+        "comprehensive", "exhaustive", "thorough",
+    )
+    if any(cue in q for cue in _EXHAUSTIVE_CUES):
+        count = max(count, 3)  # force decomposition threshold
+
     for pat in _ENUMERATION_PATTERNS:
         m = pat.search(q)
         if not m:

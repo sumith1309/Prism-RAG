@@ -124,6 +124,50 @@ def _ocr_pdf(path: Path) -> list[LCDocument]:
     return out
 
 
+def _extract_pdf_tables(path: Path) -> dict[int, list[str]]:
+    """Extract tables from a PDF using pdfplumber and serialize each row
+    as 'Header: Value' sentences. Returns {page_number: [serialized_rows]}.
+
+    Falls back to empty dict if pdfplumber is unavailable.
+    """
+    try:
+        import pdfplumber
+    except ImportError:
+        return {}
+
+    tables_by_page: dict[int, list[str]] = {}
+    try:
+        with pdfplumber.open(str(path)) as pdf:
+            for page_num, page in enumerate(pdf.pages):
+                page_tables = page.extract_tables()
+                if not page_tables:
+                    continue
+                serialized: list[str] = []
+                for table in page_tables:
+                    if len(table) < 2:
+                        continue
+                    # First row = headers
+                    headers = [(h or "").strip() or f"Column {j+1}"
+                               for j, h in enumerate(table[0])]
+                    for row in table[1:]:
+                        cells = [(c or "").strip() for c in row]
+                        if not any(cells):
+                            continue
+                        parts = []
+                        for j, cell_val in enumerate(cells):
+                            if not cell_val:
+                                continue
+                            header = headers[j] if j < len(headers) else f"Column {j+1}"
+                            parts.append(f"{header}: {cell_val}")
+                        if parts:
+                            serialized.append(". ".join(parts) + ".")
+                if serialized:
+                    tables_by_page[page_num] = serialized
+    except Exception:
+        pass
+    return tables_by_page
+
+
 def _load_pdf(path: Path) -> list[LCDocument]:
     docs = PyPDFLoader(str(path)).load()
     for d in docs:
@@ -144,8 +188,19 @@ def _load_pdf(path: Path) -> list[LCDocument]:
         if ocr_docs:
             docs = ocr_docs
 
-    # Table-aware preprocessing: serialize tables into natural-language
-    # sentences so table rows retain column-header context after chunking.
+    # Extract structured tables via pdfplumber and append serialized rows
+    # to the page content. This preserves column headers on every row so
+    # table data survives chunking — same fix as DOCX/Excel.
+    pdf_tables = _extract_pdf_tables(path)
+    for d in docs:
+        page_idx = d.metadata.get("page", 0)
+        # PyPDFLoader uses 0-based page index; pdfplumber also 0-based.
+        if page_idx in pdf_tables:
+            table_block = "\n".join(pdf_tables[page_idx])
+            d.page_content = (d.page_content or "") + "\n\n" + table_block
+
+    # Table-aware preprocessing: serialize markdown-style tables into
+    # natural-language sentences (catches any tables pdfplumber missed).
     for d in docs:
         d.page_content = _preprocess_text(d.page_content or "")
     return docs

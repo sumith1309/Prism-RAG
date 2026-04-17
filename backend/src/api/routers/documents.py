@@ -117,7 +117,12 @@ async def upload_docs(
                 if r.strip().lower() in _TOGGLABLE_ROLES
             ]
     else:
-        disable_set = sorted(_ALL_NON_EXEC_ROLES - {user.role})
+        # Employee uploads → visible to employee + manager + exec.
+        # Guest/Manager uploads → visible to uploader + exec only.
+        if user.role == "employee":
+            disable_set = sorted(_ALL_NON_EXEC_ROLES - {"employee", "manager"})
+        else:
+            disable_set = sorted(_ALL_NON_EXEC_ROLES - {user.role})
 
     out: list[UploadResponse] = []
     max_bytes = settings.MAX_UPLOAD_MB * 1024 * 1024

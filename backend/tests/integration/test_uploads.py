@@ -73,8 +73,8 @@ def test_guest_upload_visible_to_guest_and_exec_only(tiny_pdf: bytes) -> None:
     httpx.delete(f"{BASE}/api/documents/{doc_id}", headers={"Authorization": f"Bearer {xtok}"})
 
 
-def test_employee_upload_visible_to_employee_and_exec_only(tiny_pdf: bytes) -> None:
-    """Employee uploads → employee sees it, exec sees it, guest/manager don't."""
+def test_employee_upload_visible_to_employee_manager_and_exec(tiny_pdf: bytes) -> None:
+    """Employee uploads → employee sees it, manager sees it, exec sees it, guest doesn't."""
     etok = _login("employee", "employee_pass")
     r = httpx.post(
         f"{BASE}/api/documents",
@@ -88,6 +88,10 @@ def test_employee_upload_visible_to_employee_and_exec_only(tiny_pdf: bytes) -> N
     # Employee sees their own doc.
     assert _doc_visible(etok, doc_id), "employee must see their own upload"
 
+    # Manager sees it.
+    mtok = _login("manager", "manager_pass")
+    assert _doc_visible(mtok, doc_id), "manager must see employee's upload"
+
     # Exec sees it.
     xtok = _login("exec", "exec_pass")
     assert _doc_visible(xtok, doc_id), "exec must see employee's upload"
@@ -95,10 +99,6 @@ def test_employee_upload_visible_to_employee_and_exec_only(tiny_pdf: bytes) -> N
     # Guest does NOT see it.
     gtok = _login("guest", "guest_pass")
     assert not _doc_visible(gtok, doc_id), "guest must NOT see employee's upload"
-
-    # Manager does NOT see it.
-    mtok = _login("manager", "manager_pass")
-    assert not _doc_visible(mtok, doc_id), "manager must NOT see employee's upload"
 
     # cleanup
     httpx.delete(f"{BASE}/api/documents/{doc_id}", headers={"Authorization": f"Bearer {xtok}"})

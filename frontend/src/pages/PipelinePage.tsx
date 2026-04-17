@@ -25,6 +25,15 @@ import {
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
+import { gsap } from "@/lib/gsap";
+import {
+  CountUp,
+  PipelineProgressBar,
+  StageReveal,
+  TextReveal,
+  usePipelineTimeline,
+  type PipelineStage,
+} from "@/components/pipeline";
 
 // ============================================================================
 // Types
@@ -245,6 +254,15 @@ export function PipelinePage() {
   const [theoryStage, setTheoryStage] = useState<StageKey | null>(null);
   const [hoverChunk, setHoverChunk] = useState<{ chunk: StageHit; x: number; y: number } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const { triggerStage, reset: resetTimeline } = usePipelineTimeline();
+
+  // Trigger GSAP stage animations whenever the pipeline step changes.
+  useEffect(() => {
+    const step = state.step;
+    if (step !== "idle" && step !== "error") {
+      triggerStage(step as PipelineStage);
+    }
+  }, [state.step, triggerStage]);
 
   const examples = useMemo(
     () => [
@@ -293,6 +311,7 @@ export function PipelinePage() {
     setState(EMPTY_STATE);
     setCompareNoRerank(null);
     setQuery("");
+    resetTimeline();
   };
 
   return (
@@ -1043,6 +1062,9 @@ function RunBlock({
         </div>
       )}
 
+      {/* GSAP-animated progress bar — fills segment-by-segment as stages complete */}
+      <PipelineProgressBar />
+
       <RunHeader state={state} />
 
       <StageCard
@@ -1197,59 +1219,72 @@ function StageCard({
 }) {
   const Icon = stage.icon;
   const tagline = taglineOverride || stage.tagline;
+  const stageIndex = STAGES.findIndex((s) => s.key === stage.key);
+
+  if (!revealed) return null;
+
   return (
-    <AnimatePresence>
-      {revealed && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35, ease: "easeOut" }}
-          className="rounded-xl border border-border bg-white shadow-sm overflow-hidden"
-        >
-          <div className="px-4 py-3 border-b border-border flex items-start gap-3">
-            <div
-              className="w-9 h-9 rounded-md flex items-center justify-center text-[13px] font-bold border shrink-0"
-              style={{
-                background: stage.color + "16",
-                borderColor: stage.color + "40",
-                color: stage.color,
-              }}
-            >
-              {stage.n}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <Icon className="w-4 h-4" strokeWidth={1.75} style={{ color: stage.color }} />
-                <span className="font-semibold text-fg text-[14px]">{stage.title}</span>
-                <span className="text-[11px] text-fg-muted truncate" title={tagline}>· {tagline}</span>
-                <button
-                  onClick={() => onTheoryOpen(stage.key)}
-                  className="ml-auto text-fg-subtle hover:text-accent transition-colors shrink-0"
-                  title="Theory deep-dive"
-                >
-                  <HelpCircle className="w-4 h-4" strokeWidth={2} />
-                </button>
-              </div>
-              <div className="text-[12px] text-fg-muted mt-1 leading-relaxed">
-                {stage.explainer}
-              </div>
-              <div className="text-[11px] text-fg-subtle mt-1 italic">{stage.why}</div>
-            </div>
-            {latencyMs !== null && (
-              <div className="text-right shrink-0 ml-2">
-                <div className="text-[9.5px] uppercase tracking-wider text-fg-subtle font-semibold">
-                  Latency
-                </div>
-                <div className="font-mono text-[12.5px] font-semibold text-fg">
-                  {latencyMs}ms
-                </div>
-              </div>
-            )}
+    <StageReveal
+      active={loading}
+      completed={revealed && !loading}
+      index={stageIndex}
+      color={stage.color}
+    >
+      <div
+        className="overflow-hidden"
+        data-pipeline-node={stage.key}
+      >
+        <div className="px-4 py-3 border-b border-border flex items-start gap-3">
+          <div
+            className="w-9 h-9 rounded-md flex items-center justify-center text-[13px] font-bold border shrink-0"
+            style={{
+              background: stage.color + "16",
+              borderColor: stage.color + "40",
+              color: stage.color,
+            }}
+          >
+            {stage.n}
           </div>
-          <div className="p-3.5">{loading ? <Loading /> : children}</div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <Icon className="w-4 h-4" strokeWidth={1.75} style={{ color: stage.color }} />
+              <TextReveal
+                text={stage.title}
+                active={loading || (revealed && !loading)}
+                className="font-semibold text-fg text-[14px]"
+                stagger={0.025}
+              />
+              <span className="text-[11px] text-fg-muted truncate" title={tagline}>· {tagline}</span>
+              <button
+                onClick={() => onTheoryOpen(stage.key)}
+                className="ml-auto text-fg-subtle hover:text-accent transition-colors shrink-0"
+                title="Theory deep-dive"
+              >
+                <HelpCircle className="w-4 h-4" strokeWidth={2} />
+              </button>
+            </div>
+            <div className="text-[12px] text-fg-muted mt-1 leading-relaxed">
+              {stage.explainer}
+            </div>
+            <div className="text-[11px] text-fg-subtle mt-1 italic">{stage.why}</div>
+          </div>
+          {latencyMs !== null && latencyMs > 0 && (
+            <div className="text-right shrink-0 ml-2">
+              <div className="text-[9.5px] uppercase tracking-wider text-fg-subtle font-semibold">
+                Latency
+              </div>
+              <CountUp
+                value={latencyMs}
+                suffix="ms"
+                duration={0.8}
+                className="font-mono text-[12.5px] font-semibold text-fg"
+              />
+            </div>
+          )}
+        </div>
+        <div className="p-3.5">{loading ? <Loading /> : children}</div>
+      </div>
+    </StageReveal>
   );
 }
 

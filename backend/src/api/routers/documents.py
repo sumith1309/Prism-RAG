@@ -88,14 +88,11 @@ async def upload_docs(
     per-role visibility at upload time. Silently dropped for non-exec
     users — they can't control visibility beyond clearance anyway.
     """
-    # Escalation: non-exec uploads go UP, not stay flat.
-    _UPLOAD_ESCALATION: dict[str, int] = {
-        "guest": 4,      # → RESTRICTED (exec only)
-        "employee": 3,   # → CONFIDENTIAL (manager + exec)
-        "manager": 4,    # → RESTRICTED (exec only)
-    }
+    # Upload visibility: uploader sees their own doc + exec always sees it.
+    # Everyone else is blocked via disabled_for_roles until exec shares.
+    _ALL_NON_EXEC_ROLES = {"guest", "employee", "manager"}
     if user.role == "executive":
-        # Exec chooses freely — no escalation.
+        # Exec chooses freely — no restrictions.
         desired_level = int(classification) if classification is not None else int(user.level)
         if desired_level < 1 or desired_level > 4:
             raise HTTPException(
@@ -103,16 +100,24 @@ async def upload_docs(
                 detail=f"classification must be between 1 and 4; got {desired_level}.",
             )
     else:
-        # Non-exec: ignore their classification choice, escalate.
-        desired_level = _UPLOAD_ESCALATION.get(user.role, 4)
-    # Parse + filter disabled_for_roles — only honored for exec uploads.
+        # Non-exec: doc_level = uploader's own level (so they can see it).
+        # disabled_for_roles = everyone except uploader's role + exec.
+        desired_level = int(user.level)
+
+    # Build the disable list:
+    #   Exec: from the form field (they choose explicitly).
+    #   Non-exec: auto-hide from all other non-exec roles so only the
+    #   uploader + exec can see the doc until exec shares it wider.
     disable_set: list[str] = []
-    if disabled_for_roles and user.role == "executive":
-        disable_set = [
-            r.strip().lower()
-            for r in disabled_for_roles.split(",")
-            if r.strip().lower() in _TOGGLABLE_ROLES
-        ]
+    if user.role == "executive":
+        if disabled_for_roles:
+            disable_set = [
+                r.strip().lower()
+                for r in disabled_for_roles.split(",")
+                if r.strip().lower() in _TOGGLABLE_ROLES
+            ]
+    else:
+        disable_set = sorted(_ALL_NON_EXEC_ROLES - {user.role})
 
     out: list[UploadResponse] = []
     max_bytes = settings.MAX_UPLOAD_MB * 1024 * 1024

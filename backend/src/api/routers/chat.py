@@ -1624,7 +1624,13 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                 # answer IS in the corpus. Auto-expand top_k when the
                 # query looks compound. Simple questions stay at base
                 # top_k for speed.
-                sub_q_count = _estimate_subquestions(search_query)
+                #
+                # IMPORTANT: estimate on the ORIGINAL query, NOT
+                # search_query — contextualization collapses 5-part
+                # questions into 1-liners, which defeats the compound
+                # detector entirely. The original preserves all the
+                # user's sub-parts.
+                sub_q_count = _estimate_subquestions(req.query)
                 original_top_k = req.top_k
                 if sub_q_count > 1:
                     req.top_k = _expanded_top_k(req.top_k, sub_q_count)

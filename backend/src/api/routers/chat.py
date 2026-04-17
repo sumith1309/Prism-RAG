@@ -25,7 +25,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from src.api.routers.welcome import build_welcome_payload
 from src.auth.dependencies import CurrentUser
-from src.core import chat_cache, models
+from src.core import chat_cache, models, store
 from src.core.prompts import (
     COMPOUND_DECOMPOSE_PROMPT,
     CONTEXTUALIZE_PROMPT,
@@ -635,11 +635,14 @@ async def _decompose_compound(query: str) -> list[str]:
         return [query]
 
 
-async def _corrective_rewrite(query: str) -> str:
+async def _corrective_rewrite(query: str, corpus_hint: str = "") -> str:
+    prompt = CORRECTIVE_PROMPT.format(query=query)
+    if corpus_hint:
+        prompt += f"\n\nCorpus context (documents that may be relevant): {corpus_hint}"
     try:
         txt = await asyncio.wait_for(
             _complete_chat(
-                [{"role": "user", "content": CORRECTIVE_PROMPT.format(query=query)}],
+                [{"role": "user", "content": prompt}],
                 max_tokens=80,
                 temperature=0.4,
             ),
@@ -649,6 +652,72 @@ async def _corrective_rewrite(query: str) -> str:
         return cleaned or query
     except Exception:
         return query
+
+
+# ── Corpus-aware query expansion ─────────────────────────────────────────
+# For short/vague queries, match tokens against document filenames and
+# section headings to resolve abbreviations (e.g. "s2" → "Session 2
+# Homework"). This runs BEFORE retrieval, not during corrective retry.
+
+def _corpus_expand(query: str) -> tuple[str, str]:
+    """Match query tokens against document metadata to expand abbreviations.
+
+    Returns (expanded_query, corpus_hint_for_corrective).
+    The hint is a short string of matching filenames/sections for injection
+    into the corrective rewrite prompt.
+    """
+    tokens = re.findall(r"\w+", query.lower())
+    if not tokens:
+        return query, ""
+
+    docs = store.list_documents()
+    if not docs:
+        return query, ""
+
+    # Build search index from filenames + sections
+    matches: list[str] = []
+    matched_names: list[str] = []
+    for doc in docs:
+        name_lower = doc.filename.lower()
+        # Break filename into searchable parts: "S2_Homework_hands on.docx"
+        # → ["s2", "homework", "hands", "on"]
+        name_parts = re.findall(r"[a-z0-9]+", name_lower)
+        section_parts = re.findall(r"[a-z0-9]+", (doc.sections or "").lower())
+        all_parts = set(name_parts + section_parts)
+
+        for tok in tokens:
+            if len(tok) < 2:
+                continue
+            # Exact match or prefix match (e.g. "s2" matches "s2" in name_parts)
+            if tok in all_parts:
+                # Build human-readable expansion from filename
+                readable = doc.filename.rsplit(".", 1)[0].replace("_", " ").replace("-", " ")
+                if readable not in matched_names:
+                    matched_names.append(readable)
+                    matches.append(readable)
+                break
+            # Substring match for longer tokens (e.g. "hrflow" in "hrflow-hrms")
+            if len(tok) >= 4 and any(tok in p for p in all_parts):
+                readable = doc.filename.rsplit(".", 1)[0].replace("_", " ").replace("-", " ")
+                if readable not in matched_names:
+                    matched_names.append(readable)
+                    matches.append(readable)
+                break
+
+    if not matches:
+        return query, ""
+
+    # Build expanded query: append matched document context
+    expansion = " ".join(matches[:3])  # cap at 3 matches
+    expanded = f"{query} ({expansion})"
+    corpus_hint = ", ".join(matches[:3])
+    return expanded, corpus_hint
+
+
+def _is_short_query(q: str) -> bool:
+    """True if the query has fewer than 4 content words — signals ambiguity."""
+    tokens = [t for t in q.split() if len(t) >= 2 and any(c.isalpha() for c in t)]
+    return len(tokens) < 4
 
 
 async def _classify_intent(query: str) -> str:
@@ -1695,6 +1764,21 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                             ),
                         }
 
+                # ── 2c. Corpus-aware query expansion ────────────────────
+                # For short/vague queries, match tokens against document
+                # filenames and sections to resolve abbreviations before
+                # retrieval. Also auto-enable multi-query for short
+                # queries to cast a wider net.
+                corpus_hint = ""
+                if _is_short_query(search_query):
+                    expanded, corpus_hint = _corpus_expand(search_query)
+                    if expanded != search_query:
+                        search_query = expanded
+                    # Short queries benefit from multi-query fan-out —
+                    # the LLM rewrites help bridge vocabulary gaps.
+                    if not req.use_multi_query:
+                        req.use_multi_query = True
+
                 # ── 3. Multi-query retrieval (parallel fan-out, opt-in) ───
                 from src.pipelines.retrieval_pipeline import _is_recency_sensitive
                 prefer_recent = _is_recency_sensitive(search_query)
@@ -1834,7 +1918,7 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                     and not disambig_candidates
                     and _is_substantive_query(req.query)
                 ):
-                    rewritten = await _corrective_rewrite(req.query)
+                    rewritten = await _corrective_rewrite(req.query, corpus_hint=corpus_hint)
                     if rewritten and rewritten.strip().lower() != req.query.strip().lower():
                         corrective_retries = 1
                         t_r = time.perf_counter()

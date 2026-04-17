@@ -374,54 +374,189 @@ def _compute_column_stats(headers: list[str], data_rows: list[list]) -> str:
     return "Column Statistics Summary (pre-computed from all rows):\n" + "\n".join(stats_lines)
 
 
+def _build_cross_sheet_summary(wb) -> str:
+    """For multi-sheet workbooks where each sheet represents an entity
+    (employee, product, account), build a cross-sheet comparison table.
+
+    Detects metadata in header rows (employee name, department, gender, ID)
+    and summary/statistics rows, then assembles a single retrievable block
+    like:
+      "Cross-sheet summary (66 sheets):
+       Employee: Sayed Arfas Abdul Sathar. ID: 103. Gender: Male. Department: Sales. Total Time: 157:50.
+       Employee: Kunhimoideen Ambadath. ID: 104. Gender: Male. Department: Operations. Total Time: 99:40.
+       ..."
+
+    This enables cross-entity queries: "who has the highest time?",
+    "how many females in Operations?", "total time for Eslam?"
+    """
+    # Pattern: row 2 often has metadata like "Employee: Name,,Gender [ID] ... Department: X"
+    _META_RE = re.compile(
+        r"Employee:\s*(.+?)(?:,,|\s*,\s*)(\w*)\s*\[(\d+)\].*?Department:\s*(\w[\w\s]*?)(?:\[|$)",
+        re.IGNORECASE,
+    )
+
+    entries: list[str] = []
+    for sheet in wb.worksheets:
+        rows = list(sheet.iter_rows(values_only=True))
+        if len(rows) < 3:
+            continue
+
+        # Try to extract metadata from header rows (rows 0-3)
+        name = gender = emp_id = department = ""
+        for row in rows[:4]:
+            for cell in row:
+                if cell is None:
+                    continue
+                text = str(cell).strip()
+                m = _META_RE.search(text)
+                if m:
+                    name = m.group(1).strip().rstrip(",")
+                    gender = m.group(2).strip()
+                    emp_id = m.group(3).strip()
+                    department = m.group(4).strip()
+                    break
+            if name:
+                break
+
+        if not name:
+            continue
+
+        # Find statistics/summary row (usually last row with "Statistics" or "Total")
+        stats = {}
+        for row in reversed(rows):
+            first_cell = str(row[0]).strip().lower() if row[0] else ""
+            if first_cell in ("statistics", "total", "totals", "summary", "grand total"):
+                # Find the data header row — the one with 3+ non-empty cells
+                # that isn't a title row (skip rows with mostly empty cells)
+                for hdr_row in rows[:6]:
+                    hdrs = [str(h).strip() if h else "" for h in hdr_row]
+                    non_empty = sum(1 for h in hdrs if h)
+                    if non_empty >= 3:
+                        for j, val in enumerate(row):
+                            if val and j < len(hdrs) and hdrs[j] and j > 0:
+                                stats[hdrs[j]] = str(val).strip()
+                        break
+                break
+
+        # Build the entry line
+        parts = [f"Employee: {name}"]
+        if emp_id:
+            parts.append(f"ID: {emp_id}")
+        if gender:
+            parts.append(f"Gender: {gender}")
+        if department:
+            parts.append(f"Department: {department}")
+        parts.append(f"Sheet: {sheet.title}")
+        for k, v in stats.items():
+            if v and k.lower() != "statistics":
+                parts.append(f"{k}: {v}")
+        entries.append(". ".join(parts) + ".")
+
+    if len(entries) < 2:
+        return ""
+
+    # Count by department and gender for quick lookups
+    dept_counts: dict[str, int] = {}
+    gender_counts: dict[str, int] = {}
+    for entry in entries:
+        for part in entry.split(". "):
+            if part.startswith("Department: "):
+                dept = part.split(": ", 1)[1].rstrip(".")
+                dept_counts[dept] = dept_counts.get(dept, 0) + 1
+            if part.startswith("Gender: "):
+                g = part.split(": ", 1)[1].rstrip(".")
+                gender_counts[g] = gender_counts.get(g, 0) + 1
+
+    summary_parts = [f"Cross-sheet summary ({len(entries)} entities):"]
+    if dept_counts:
+        dept_str = ", ".join(f"{k}: {v}" for k, v in sorted(dept_counts.items()))
+        summary_parts.append(f"By department: {dept_str}.")
+    if gender_counts:
+        gender_str = ", ".join(f"{k}: {v}" for k, v in sorted(gender_counts.items()))
+        summary_parts.append(f"By gender: {gender_str}.")
+    summary_parts.append("")
+    summary_parts.extend(entries)
+
+    return "\n".join(summary_parts)
+
+
 def _load_excel(path: Path) -> list[LCDocument]:
     """Load .xlsx/.xls — serialize each row as 'Header: Value' sentences.
 
     Multi-sheet workbooks produce one section per sheet. Row 1 of each
     sheet is treated as column headers. Empty rows are skipped.
 
-    A pre-computed statistics summary is prepended so aggregation queries
-    (total, count, average) retrieve accurate answers without needing
-    all rows in the context window.
+    Two summary chunks are prepended:
+    1. Per-sheet column statistics (totals, counts, averages)
+    2. Cross-sheet comparison table (for multi-entity workbooks)
     """
     import openpyxl
 
     wb = openpyxl.load_workbook(str(path), read_only=True, data_only=True)
     docs: list[LCDocument] = []
 
+    # Cross-sheet summary for multi-sheet workbooks (employee comparisons, etc.)
+    if len(wb.worksheets) > 3:
+        cross_summary = _build_cross_sheet_summary(wb)
+        if cross_summary:
+            # Split into chunks if very large (66 employees = ~5KB)
+            page_size = 3000
+            chunks = [cross_summary[i : i + page_size]
+                      for i in range(0, len(cross_summary), page_size)]
+            for i, chunk in enumerate(chunks):
+                docs.append(LCDocument(page_content=chunk, metadata={"page": 0}))
+
     for sheet in wb.worksheets:
         rows = list(sheet.iter_rows(values_only=True))
         if not rows:
             continue
 
-        # First row = headers
+        # Find the header row (first row with multiple non-empty cells)
+        header_idx = 0
+        for idx, row in enumerate(rows[:5]):
+            non_empty = sum(1 for v in row if v is not None and str(v).strip())
+            if non_empty >= 3:
+                header_idx = idx
+                break
+
         headers = [str(h).strip() if h is not None else f"Column {j+1}"
-                   for j, h in enumerate(rows[0])]
+                   for j, h in enumerate(rows[header_idx])]
 
         # Pre-compute column statistics summary
-        data_rows = []
-        for row in rows[1:]:
-            data_rows.append(list(row))
-
+        data_rows = [list(r) for r in rows[header_idx + 1:]]
         stats_block = _compute_column_stats(headers, data_rows)
         if stats_block:
-            sheet_prefix = f"Sheet: {sheet.title}\n\n" if len(wb.worksheets) > 1 else ""
+            # Include sheet metadata (employee name, etc.) in the stats
+            meta_lines = []
+            for row in rows[:header_idx]:
+                for cell in row:
+                    if cell and str(cell).strip():
+                        meta_lines.append(str(cell).strip())
+            meta_prefix = "\n".join(meta_lines[:3]) + "\n\n" if meta_lines else ""
+
+            sheet_prefix = f"Sheet: {sheet.title}\n" if len(wb.worksheets) > 1 else ""
             row_count = len([r for r in data_rows if any(
                 v is not None and str(v).strip() for v in r
             )])
             summary = (
-                f"{sheet_prefix}"
+                f"{sheet_prefix}{meta_prefix}"
                 f"This sheet contains {row_count} data rows with columns: "
                 f"{', '.join(headers)}.\n\n{stats_block}"
             )
             docs.append(LCDocument(page_content=summary, metadata={"page": 0}))
 
-        # Serialize individual rows
+        # Serialize individual rows (include metadata rows too)
         parts: list[str] = []
         if len(wb.worksheets) > 1:
             parts.append(f"Sheet: {sheet.title}")
 
-        for row in rows[1:]:
+        # Add metadata rows as context
+        for row in rows[:header_idx]:
+            for cell in row:
+                if cell and str(cell).strip():
+                    parts.append(str(cell).strip())
+
+        for row in rows[header_idx + 1:]:
             cells = [str(v).strip() if v is not None else "" for v in row]
             if not any(cells):
                 continue

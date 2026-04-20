@@ -302,6 +302,8 @@ export interface ThreadTurn {
   comparison?: {
     columns: ComparisonColumn[];
   } | null;
+  // Only populated when answer_mode === "social".
+  welcome?: WelcomePayload | null;
 }
 
 export interface ThreadDetail extends ThreadSummary {

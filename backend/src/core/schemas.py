@@ -105,6 +105,9 @@ class ThreadTurn(BaseModel):
     # {columns: [per-doc answer objects]} so thread-replay can re-render
     # the side-by-side comparison view.
     comparison: Optional[dict] = None
+    # Social: populated only when answer_mode == "social". Carries the
+    # welcome payload so thread-replay renders the full WelcomeCard.
+    welcome: Optional[dict] = None
 
 
 class ThreadDetail(BaseModel):

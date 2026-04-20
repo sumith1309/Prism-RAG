@@ -42,6 +42,7 @@ def get_my_thread(thread_id: str, user: CurrentUser = Depends(get_current_user))
         sources: list[dict] = []
         disambiguation: dict | None = None
         comparison: dict | None = None
+        welcome: dict | None = None
         raw = r.sources_json or ""
         if raw:
             try:
@@ -49,6 +50,7 @@ def get_my_thread(thread_id: str, user: CurrentUser = Depends(get_current_user))
                 # Grounded turns store a list of source chunks.
                 # Disambiguate turns store {"candidates": [...]} (a dict).
                 # Comparison turns store {"comparison": [...]} (a dict).
+                # Social turns store {"welcome": {...}} (a dict).
                 if isinstance(parsed, list):
                     sources = parsed
                 elif isinstance(parsed, dict):
@@ -58,6 +60,8 @@ def get_my_thread(thread_id: str, user: CurrentUser = Depends(get_current_user))
                         comparison = {
                             "columns": parsed["comparison"],
                         }
+                    elif "welcome" in parsed:
+                        welcome = parsed["welcome"]
             except Exception:
                 pass
         turns_out.append(
@@ -72,6 +76,7 @@ def get_my_thread(thread_id: str, user: CurrentUser = Depends(get_current_user))
                 created_at=r.created_at,
                 disambiguation=disambiguation,
                 comparison=comparison,
+                welcome=welcome,
             )
         )
     return ThreadDetail(

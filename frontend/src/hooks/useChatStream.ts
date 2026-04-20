@@ -32,6 +32,9 @@ function turnToMessage(turn: ThreadTurn): ChatMessage {
       columns: turn.comparison.columns || [],
     };
   }
+  if (turn.answer_mode === "social" && turn.welcome) {
+    msg.welcome = turn.welcome;
+  }
   return msg;
 }
 

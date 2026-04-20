@@ -1465,7 +1465,7 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                     thread_id=thread_id,
                     role="assistant",
                     content=greeting,
-                    sources_json="",
+                    sources_json=json.dumps({"welcome": payload}),
                     refused=False,
                     answer_mode="social",
                 )

@@ -1668,12 +1668,53 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
         # instead of the normal RAG pipeline. The agent loads the raw
         # file into pandas, asks the LLM to write code, and executes it.
         from src.pipelines.analytics_agent import (
+            classify_data_query as _classify_data,
             find_target_doc as _find_analytics_doc,
             looks_like_data_query as _is_data_query,
             run_analytics_query as _run_analytics,
         )
 
-        if _is_data_query(req.query):
+        _data_intent = _classify_data(req.query)
+
+        # Ambiguous: data and doc signals are close — ask the user
+        if _data_intent == "ambiguous":
+            target_doc = await _find_analytics_doc(
+                req.query, req.doc_ids or None, user.level, user.role
+            )
+            if target_doc is not None:
+                msg = (
+                    "I'm not sure if you want to **analyze data** from "
+                    f"**{_prettify_filename(target_doc.filename)}** (Excel/CSV) "
+                    "or **search your documents** for this topic.\n\n"
+                    "- Reply **\"analyze\"** or **\"data\"** to run a data query\n"
+                    "- Reply **\"search\"** or just rephrase to search documents"
+                )
+                yield {"event": "token", "data": json.dumps({"delta": msg})}
+                full_answer = msg
+                answer_mode = "general"
+                try:
+                    models.append_turn(thread_id=thread_id, role="user", content=req.query)
+                    models.append_turn(
+                        thread_id=thread_id, role="assistant", content=msg,
+                        sources_json="", refused=False, answer_mode="general",
+                    )
+                    models.touch_thread(thread_id)
+                except Exception:
+                    pass
+                yield {
+                    "event": "done",
+                    "data": json.dumps({
+                        "ok": True, "answer_mode": "general",
+                        "thread_id": thread_id, "cached": False,
+                        "latency_ms": {"retrieve": 0, "rerank": 0, "generate": 0,
+                                       "total": int((time.perf_counter() - t_total) * 1000)},
+                        "tokens": {"prompt": 0, "completion": 0},
+                        "corrective_retries": 0, "faithfulness": -1.0,
+                    }),
+                }
+                return
+
+        if _data_intent == "data":
             target_doc = await _find_analytics_doc(
                 req.query, req.doc_ids or None, user.level, user.role
             )

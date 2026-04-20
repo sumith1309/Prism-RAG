@@ -89,23 +89,29 @@ _DOC_QUERY_SIGNALS = {
 }
 
 
-def looks_like_data_query(query: str) -> bool:
-    """Heuristic: does the query look like it wants tabular analysis?
+def classify_data_query(query: str) -> str:
+    """Classify query intent: 'data', 'doc', or 'ambiguous'.
 
-    Requires 2+ data keywords AND no strong document-query signals.
-    'What is the total count of present' → True (data query)
-    'What is the salary policy' → False (document query)
+    'What is the total count of present' → 'data'
+    'What is the salary policy' → 'doc'
+    'What is the total salary policy breakdown' → 'ambiguous'
     """
     q_lower = query.lower()
     data_matches = sum(1 for kw in _DATA_KEYWORDS if kw in q_lower)
     if data_matches < 2:
-        return False
-    # Check for document-query signals that override data detection
+        return "doc"
     doc_matches = sum(1 for kw in _DOC_QUERY_SIGNALS if kw in q_lower)
-    # If doc signals outnumber data signals, it's probably a doc query
     if doc_matches > data_matches:
-        return False
-    return True
+        return "doc"
+    # Close call — signals within 1 of each other and both ≥ 2
+    if doc_matches >= 2 and abs(data_matches - doc_matches) <= 1:
+        return "ambiguous"
+    return "data"
+
+
+def looks_like_data_query(query: str) -> bool:
+    """Backward-compatible wrapper. True only for clear 'data' intent."""
+    return classify_data_query(query) == "data"
 
 
 # ── DataFrame loading ─────────────────────────────────────────────────────

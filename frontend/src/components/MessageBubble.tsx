@@ -1,9 +1,24 @@
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { motion } from "framer-motion";
-import { Clock, HelpCircle, Info, Layers, ShieldAlert, Sparkles, User } from "lucide-react";
+import {
+  ArrowRight,
+  Clock,
+  HelpCircle,
+  Info,
+  Layers,
+  ShieldAlert,
+  ShieldX,
+  Sparkles,
+  ThumbsDown,
+  ThumbsUp,
+  User,
+  Zap,
+} from "lucide-react";
 import type { ChatMessage } from "@/types";
 import { cn } from "@/lib/utils";
+import { submitFeedback } from "@/lib/api";
 import { AccessRequestBanner } from "./AccessRequestBanner";
 import { CitationCheckChip } from "./CitationCheckChip";
 import { ComparisonCard } from "./ComparisonCard";
@@ -132,6 +147,22 @@ export function MessageBubble({
   // when the user clicked "Compare all" on a disambiguation card.
   if (message.answerMode === "comparison" && message.comparison?.columns?.length) {
     return <ComparisonCard columns={message.comparison.columns} />;
+  }
+
+  // Blocked: prompt injection guardrail triggered
+  if (message.answerMode === "blocked") {
+    return (
+      <ModeBanner
+        icon={<ShieldX className="w-3.5 h-3.5 text-clearance-restricted" strokeWidth={1.75} />}
+        borderColor="border-clearance-restricted/30"
+        bgColor="bg-clearance-restricted/5"
+        iconBgColor="bg-clearance-restricted/10 border-clearance-restricted/30"
+        eyebrow="Security guardrail"
+        eyebrowColor="text-clearance-restricted"
+        content={message.content}
+        message={message}
+      />
+    );
   }
 
   // Unknown: neutral "no confident answer" card (all non-L4 + garbage +
@@ -324,6 +355,40 @@ export function MessageBubble({
             </div>
           )}
 
+          {/* Cached indicator */}
+          {!message.streaming && message.cached && (
+            <div className="inline-flex items-center gap-1 rounded-full border border-accent/30 bg-accent-soft px-2 py-[3px] text-[10.5px] font-semibold text-accent">
+              <Zap className="w-3 h-3" strokeWidth={2.25} />
+              Cached response
+            </div>
+          )}
+
+          {/* Follow-up question pills */}
+          {!message.streaming && message.followups && message.followups.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="text-[10px] uppercase tracking-wider text-fg-subtle font-semibold">
+                Follow-up questions
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {message.followups.map((q, i) => (
+                  <button
+                    key={i}
+                    onClick={() => onPickSuggestion?.(q)}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border hover:border-accent/50 bg-surface hover:bg-accent-soft px-3 py-1.5 text-[12px] text-fg-muted hover:text-accent transition-all duration-150 cursor-pointer group"
+                  >
+                    <ArrowRight className="w-3 h-3 text-fg-subtle group-hover:text-accent transition-colors" strokeWidth={2} />
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Thumbs up/down feedback */}
+          {!message.streaming && message.content && (
+            <FeedbackButtons message={message} />
+          )}
+
           {!message.streaming && <RetrievalTrace message={message} />}
         </div>
       </div>
@@ -372,6 +437,66 @@ function ModeBanner({
         </div>
       </div>
     </motion.div>
+  );
+}
+
+function FeedbackButtons({ message }: { message: ChatMessage }) {
+  const [vote, setVote] = useState<number | null>(message.feedbackVote ?? null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleVote = async (v: number) => {
+    if (submitting) return;
+    const newVote = vote === v ? null : v; // toggle off if clicking same
+    setVote(newVote);
+    if (newVote === null) return; // un-voted, no API call
+    setSubmitting(true);
+    try {
+      // We need thread_id and turn_id. For now, use the message id pattern.
+      // The turn_id comes from the backend via the done event; we store a
+      // placeholder. In production you'd extract it from the SSE events.
+      // For the demo, we send a best-effort call.
+      const threadMatch = window.location.pathname.match(/\/t\/([a-z0-9]+)/);
+      const threadId = threadMatch?.[1] || "";
+      // turn_id: extract numeric suffix from server-generated IDs (srv-123)
+      const turnIdMatch = message.id.match(/^srv-(\d+)$/);
+      const turnId = turnIdMatch ? parseInt(turnIdMatch[1], 10) : 0;
+      if (threadId && turnId) {
+        await submitFeedback(threadId, turnId, newVote);
+      }
+    } catch {
+      // Silent fail — demo-grade
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-1 mt-0.5">
+      <button
+        onClick={() => handleVote(1)}
+        className={cn(
+          "p-1 rounded-md transition-all duration-150",
+          vote === 1
+            ? "text-green-600 bg-green-50 border border-green-200"
+            : "text-fg-subtle hover:text-green-600 hover:bg-green-50/50"
+        )}
+        title="Helpful"
+      >
+        <ThumbsUp className="w-3.5 h-3.5" strokeWidth={vote === 1 ? 2.25 : 1.5} />
+      </button>
+      <button
+        onClick={() => handleVote(-1)}
+        className={cn(
+          "p-1 rounded-md transition-all duration-150",
+          vote === -1
+            ? "text-red-500 bg-red-50 border border-red-200"
+            : "text-fg-subtle hover:text-red-500 hover:bg-red-50/50"
+        )}
+        title="Not helpful"
+      >
+        <ThumbsDown className="w-3.5 h-3.5" strokeWidth={vote === -1 ? 2.25 : 1.5} />
+      </button>
+    </div>
   );
 }
 

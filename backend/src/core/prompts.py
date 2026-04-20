@@ -170,6 +170,21 @@ INTENT_CLASSIFY_PROMPT = (
 )
 
 
+FOLLOWUP_QUESTIONS_PROMPT = (
+    "Based on the answer just given and the original question, suggest exactly "
+    "3 natural follow-up questions the user might ask next. Each question should "
+    "be specific, concise (under 12 words), and answerable from the same document "
+    "corpus. Return ONLY 3 lines, one question per line, no numbering, no quotes, "
+    "no preamble.\n\n"
+    "Original question: {query}\n\n"
+    "Answer given: {answer}\n\n"
+    "3 follow-up questions:"
+)
+
+
+INJECTION_DETECT_PROMPT = None  # Not used — detection is rule-based, no LLM call.
+
+
 DOC_CLASSIFY_PROMPT = (
     "You are a corporate document classifier. Read the document excerpt and "
     "filename, then assign a clearance level using these rules:\n\n"

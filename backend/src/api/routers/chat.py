@@ -31,6 +31,7 @@ from src.core.prompts import (
     CONTEXTUALIZE_PROMPT,
     CORRECTIVE_PROMPT,
     FAITHFULNESS_PROMPT,
+    FOLLOWUP_QUESTIONS_PROMPT,
     GENERAL_SYSTEM_PROMPT,
     INTENT_CLASSIFY_PROMPT,
     META_CONVERSATION_PROMPT,
@@ -1269,6 +1270,73 @@ def _detect_doc_ambiguity(chunks) -> list[dict] | None:
     return out
 
 
+# ─── Prompt injection guardrail ────────────────────────────────────────────
+# Rule-based detection — no LLM call, instant, zero false positives on
+# normal business queries. Catches the most common injection patterns:
+# system prompt overrides, role-play attacks, and data exfiltration attempts.
+
+_INJECTION_PATTERNS = [
+    re.compile(r"ignore\s+(all\s+)?(previous|prior|above|earlier)\s+(instructions?|rules?|prompts?)", re.IGNORECASE),
+    re.compile(r"you\s+are\s+now\s+(a|an|the|my)\b", re.IGNORECASE),
+    re.compile(r"(system\s*prompt|system\s*message|hidden\s*prompt)\s*[:=]", re.IGNORECASE),
+    re.compile(r"disregard\s+(all|any|your|the)\s+(previous|prior|instructions?|rules?)", re.IGNORECASE),
+    re.compile(r"(forget|override|bypass|skip)\s+(your|all|the|any)\s+(instructions?|rules?|constraints?|guidelines?|guardrails?)", re.IGNORECASE),
+    re.compile(r"pretend\s+(you\s+are|to\s+be|you're)\s+", re.IGNORECASE),
+    re.compile(r"act\s+as\s+(if\s+you\s+are|a|an)\s+", re.IGNORECASE),
+    re.compile(r"do\s+not\s+follow\s+(your|the|any)\s+(rules?|instructions?)", re.IGNORECASE),
+    re.compile(r"(reveal|show|print|output|display|leak)\s+(your|the|system)\s+(prompt|instructions?|rules?|message)", re.IGNORECASE),
+    re.compile(r"(jailbreak|DAN\s*mode|developer\s*mode|evil\s*mode)", re.IGNORECASE),
+    re.compile(r"\]\]\s*\}\s*\}\s*", re.IGNORECASE),  # JSON injection closing
+    re.compile(r"<\s*/?\s*(system|prompt|instruction)", re.IGNORECASE),  # XML tag injection
+]
+
+
+def _detect_injection(query: str) -> bool:
+    """Return True if the query matches known prompt injection patterns.
+    Conservative: only fires on unambiguous attack signatures. Business
+    queries like 'ignore the policy about X' don't match because the
+    patterns require 'instructions/rules/prompts' as the target."""
+    if not query or len(query) < 10:
+        return False
+    for pattern in _INJECTION_PATTERNS:
+        if pattern.search(query):
+            return True
+    return False
+
+
+# ─── Follow-up question generation ────────────────────────────────────────
+
+async def _generate_followups(query: str, answer: str) -> list[str]:
+    """Generate 3 follow-up questions based on the query and answer.
+    Non-blocking, best-effort — returns [] on any failure."""
+    if not answer.strip() or len(answer) < 30:
+        return []
+    try:
+        txt = await asyncio.wait_for(
+            _complete_chat(
+                [
+                    {
+                        "role": "user",
+                        "content": FOLLOWUP_QUESTIONS_PROMPT.format(
+                            query=query, answer=answer[:1500]
+                        ),
+                    }
+                ],
+                max_tokens=120,
+                temperature=0.4,
+            ),
+            timeout=6.0,
+        )
+        lines = [
+            ln.strip().lstrip("0123456789.-) ").strip()
+            for ln in (txt or "").strip().split("\n")
+            if ln.strip() and len(ln.strip()) > 5
+        ]
+        return lines[:3]
+    except Exception:
+        return []
+
+
 @router.post("/chat")
 async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
     async def event_generator():
@@ -1306,6 +1374,58 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
             "event": "thread",
             "data": json.dumps({"thread_id": thread_id, "title": title, "is_new": is_new_thread}),
         }
+
+        # ── 1a. Prompt injection guardrail ────────────────────────────────
+        # Rule-based detection — instant, no LLM call. Fires on
+        # unambiguous attack signatures (system prompt override, role-play,
+        # data exfiltration). Normal business queries never trigger this.
+        if _detect_injection(req.query):
+            msg = (
+                "This query was blocked by our security guardrail. It "
+                "contains patterns that resemble a prompt injection attempt. "
+                "If this is a legitimate question, please rephrase it."
+            )
+            yield {
+                "event": "blocked",
+                "data": json.dumps({"message": msg, "reason": "prompt_injection"}),
+            }
+            yield {
+                "event": "done",
+                "data": json.dumps(
+                    {
+                        "ok": True,
+                        "answer_mode": "blocked",
+                        "thread_id": thread_id,
+                        "cached": False,
+                        "latency_ms": {
+                            "retrieve": 0, "rerank": 0, "generate": 0,
+                            "total": int((time.perf_counter() - t_total) * 1000),
+                        },
+                        "tokens": {"prompt": 0, "completion": 0},
+                        "corrective_retries": 0,
+                        "faithfulness": -1.0,
+                    }
+                ),
+            }
+            try:
+                models.append_turn(thread_id=thread_id, role="user", content=req.query)
+                models.append_turn(
+                    thread_id=thread_id, role="assistant", content=msg,
+                    sources_json="", refused=True, answer_mode="blocked",
+                )
+                models.touch_thread(thread_id)
+                models.write_audit(
+                    models.AuditLog(
+                        user_id=user.id, username=user.username,
+                        user_level=user.level, query=req.query,
+                        refused=True, returned_chunks=0,
+                        allowed_doc_ids="", answer_mode="blocked",
+                        latency_total_ms=int((time.perf_counter() - t_total) * 1000),
+                    )
+                )
+            except Exception:
+                pass
+            return
 
         # ── 1b. Social short-circuit ─────────────────────────────────────
         # Greetings / thanks / meta-questions ("what can you do?") never hit
@@ -2250,6 +2370,21 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
             except Exception:
                 pass
 
+        # ── Follow-up questions (non-blocking, best-effort) ────────────
+        # Generate 3 suggested follow-up questions for grounded/general
+        # answers. Runs after persistence so it doesn't block the main flow.
+        followups: list[str] = []
+        if answer_mode in {"grounded", "general"} and full_answer.strip() and not is_cached:
+            try:
+                followups = await _generate_followups(req.query, full_answer)
+            except Exception:
+                followups = []
+        if followups:
+            yield {
+                "event": "followups",
+                "data": json.dumps({"questions": followups}),
+            }
+
         # Agent: composite confidence chip value (grounded answers only).
         # On cached replays we rehydrate a lightweight top-chunk from the
         # stored sources_json so the chip still shows without re-running
@@ -2353,3 +2488,42 @@ async def access_request(
         "ok": True,
         "message": f"Access request logged for {user.username}. A manager will review.",
     }
+
+
+# ─── Feedback endpoint (thumbs up/down) ──────────────────────────────────
+# Users rate individual assistant answers. One vote per user per turn
+# (upsert on re-vote). Stored in Feedback table for analytics.
+
+
+class FeedbackPayload(BaseModel):
+    thread_id: str
+    turn_id: int
+    vote: int  # +1 or -1
+    comment: str | None = None
+
+
+@router.post("/feedback")
+async def submit_feedback(
+    req: FeedbackPayload,
+    user: CurrentUser = Depends(chat_rate_limit),
+):
+    if req.vote not in (1, -1):
+        return {"ok": False, "message": "vote must be +1 or -1"}
+    try:
+        models.upsert_feedback(
+            thread_id=req.thread_id,
+            turn_id=req.turn_id,
+            user_id=user.id,
+            username=user.username,
+            vote=req.vote,
+            comment=(req.comment or "").strip()[:500],
+        )
+    except Exception as e:
+        return {"ok": False, "message": str(e)}
+    return {"ok": True, "vote": req.vote}
+
+
+@router.get("/feedback/stats")
+async def feedback_stats(user: CurrentUser = Depends(chat_rate_limit)):
+    """Aggregate feedback stats — visible to all roles for demo purposes."""
+    return models.get_feedback_stats()

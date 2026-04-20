@@ -91,6 +91,12 @@ export interface ChatMessage {
   corrective_rewrite?: string;
   contextualized_query?: string;
   welcome?: WelcomePayload;
+  // Suggested follow-up questions (3 clickable pills after the answer)
+  followups?: string[];
+  // Feedback state — user's vote on this answer (+1 or -1, null = no vote)
+  feedbackVote?: number | null;
+  // Turn ID from backend (used for feedback submission)
+  turnId?: number;
   // Agent — disambiguation card state (renders when answerMode="disambiguate")
   disambiguation?: {
     query: string;
@@ -178,7 +184,8 @@ export type AnswerMode =
   | "meta"
   | "system"
   | "disambiguate"
-  | "comparison";
+  | "comparison"
+  | "blocked";
 
 export interface ComparisonColumn {
   doc_id: string;

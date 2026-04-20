@@ -334,6 +334,25 @@ export interface CitationCheck {
   score: number; // valid / total
 }
 
+export async function submitFeedback(
+  threadId: string,
+  turnId: number,
+  vote: number,
+  comment?: string
+): Promise<{ ok: boolean; vote?: number }> {
+  const res = await authFetch(`${API_BASE}/api/feedback`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      thread_id: threadId,
+      turn_id: turnId,
+      vote,
+      comment: comment || "",
+    }),
+  });
+  return res.json();
+}
+
 export async function requestAccess(
   query: string,
   reason?: string
@@ -368,6 +387,8 @@ export interface ChatStreamCallbacks {
   onComparison?: (query: string, columns: ComparisonColumn[]) => void;
   onRecencyBoost?: () => void;
   onTopKExpanded?: (from: number, to: number, subQuestions: number) => void;
+  onFollowups?: (questions: string[]) => void;
+  onBlocked?: (message: string, reason: string) => void;
   onDone: (answerMode: string, thread_id: string, meta: DoneMeta) => void;
   onError: (message: string) => void;
 }
@@ -455,6 +476,12 @@ export async function streamChat(
             data.to || 5,
             data.sub_questions || 1
           );
+          break;
+        case "followups":
+          callbacks.onFollowups?.(data.questions || []);
+          break;
+        case "blocked":
+          callbacks.onBlocked?.(data.message || "Blocked.", data.reason || "unknown");
           break;
         case "done":
           callbacks.onDone(data.answer_mode || "grounded", data.thread_id || "", {

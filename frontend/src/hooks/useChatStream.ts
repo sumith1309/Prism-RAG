@@ -352,6 +352,28 @@ export function useChatStream() {
                     : m
                 )
               ),
+            onFollowups: (questions) =>
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMsg.id
+                    ? { ...m, followups: questions }
+                    : m
+                )
+              ),
+            onBlocked: (msg, _reason) =>
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMsg.id
+                    ? {
+                        ...m,
+                        content: msg,
+                        answerMode: "blocked" as AnswerMode,
+                        streaming: false,
+                        sources: [],
+                      }
+                    : m
+                )
+              ),
             onDone: (answerMode, thread_id, meta) => {
               const finalMode = (answerMode as AnswerMode) || "grounded";
               // Backend can demote grounded → unknown post-generation when the
@@ -365,7 +387,8 @@ export function useChatStream() {
                 finalMode === "meta" ||
                 finalMode === "system" ||
                 finalMode === "disambiguate" ||
-                finalMode === "comparison";
+                finalMode === "comparison" ||
+                finalMode === "blocked";
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantMsg.id

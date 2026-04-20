@@ -47,6 +47,17 @@ class AuditLog(SQLModel, table=True):
     faithfulness: float = -1.0  # -1 = not measured
 
 
+class Feedback(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    thread_id: str = Field(index=True)
+    turn_id: int = Field(index=True)  # ChatTurn.id of the assistant message
+    user_id: int = Field(index=True)
+    username: str
+    vote: int  # +1 = thumbs up, -1 = thumbs down
+    comment: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class ChatThread(SQLModel, table=True):
     id: str = Field(primary_key=True)
     user_id: int = Field(index=True)
@@ -219,6 +230,51 @@ def list_turns(thread_id: str) -> list[ChatTurn]:
                 .order_by(ChatTurn.created_at.asc())
             )
         )
+
+
+def upsert_feedback(thread_id: str, turn_id: int, user_id: int, username: str, vote: int, comment: str = "") -> Feedback:
+    """Insert or update feedback for a specific turn. One vote per user per turn."""
+    with Session(_get_engine()) as s:
+        existing = s.exec(
+            select(Feedback)
+            .where(Feedback.turn_id == turn_id)
+            .where(Feedback.user_id == user_id)
+        ).first()
+        if existing:
+            existing.vote = vote
+            existing.comment = comment
+            existing.created_at = datetime.utcnow()
+            s.add(existing)
+            s.commit()
+            s.refresh(existing)
+            return existing
+        fb = Feedback(
+            thread_id=thread_id,
+            turn_id=turn_id,
+            user_id=user_id,
+            username=username,
+            vote=vote,
+            comment=comment,
+        )
+        s.add(fb)
+        s.commit()
+        s.refresh(fb)
+        return fb
+
+
+def get_feedback_for_thread(thread_id: str) -> list[Feedback]:
+    with Session(_get_engine()) as s:
+        return list(s.exec(select(Feedback).where(Feedback.thread_id == thread_id)))
+
+
+def get_feedback_stats() -> dict:
+    """Aggregate feedback stats for the admin dashboard."""
+    with Session(_get_engine()) as s:
+        all_fb = list(s.exec(select(Feedback)))
+        total = len(all_fb)
+        thumbs_up = sum(1 for f in all_fb if f.vote > 0)
+        thumbs_down = sum(1 for f in all_fb if f.vote < 0)
+        return {"total": total, "thumbs_up": thumbs_up, "thumbs_down": thumbs_down}
 
 
 def mark_last_disambiguation_chosen(thread_id: str, chosen_doc_id: str) -> None:

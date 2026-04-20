@@ -78,11 +78,34 @@ _DATA_KEYWORDS = {
 }
 
 
+# Phrases that indicate a document/policy question, NOT a data query.
+# "What is the salary policy?" should go to RAG, not pandas.
+_DOC_QUERY_SIGNALS = {
+    "policy", "procedure", "guideline", "rule", "regulation",
+    "what is the", "what are the", "explain", "describe", "tell me about",
+    "summarize", "summary", "overview", "define", "definition",
+    "how does", "how do", "why does", "why do", "when was", "who is",
+    "document", "handbook", "manual", "report", "clause", "section",
+}
+
+
 def looks_like_data_query(query: str) -> bool:
-    """Heuristic: does the query look like it wants tabular analysis?"""
+    """Heuristic: does the query look like it wants tabular analysis?
+
+    Requires 2+ data keywords AND no strong document-query signals.
+    'What is the total count of present' → True (data query)
+    'What is the salary policy' → False (document query)
+    """
     q_lower = query.lower()
-    matches = sum(1 for kw in _DATA_KEYWORDS if kw in q_lower)
-    return matches >= 2  # need at least 2 data keywords to trigger
+    data_matches = sum(1 for kw in _DATA_KEYWORDS if kw in q_lower)
+    if data_matches < 2:
+        return False
+    # Check for document-query signals that override data detection
+    doc_matches = sum(1 for kw in _DOC_QUERY_SIGNALS if kw in q_lower)
+    # If doc signals outnumber data signals, it's probably a doc query
+    if doc_matches > data_matches:
+        return False
+    return True
 
 
 # ── DataFrame loading ─────────────────────────────────────────────────────
@@ -425,6 +448,36 @@ async def run_analytics_query(
 
     # Execute
     result = _execute_pandas_code(code, df)
+
+    # Corrective retry: if the first attempt failed with a runtime error,
+    # send the error back to the LLM and ask it to fix the code.
+    if not result["ok"] and result["error"] and "safety check" not in result["error"]:
+        retry_prompt = (
+            f"Your previous code failed with this error:\n"
+            f"{result['error']}\n\n"
+            f"Original code:\n{code}\n\n"
+            f"Fix the code. Remember: the DataFrame is `df`, store result in `result`.\n"
+            f"Schema:\n{schema}\n\n"
+            f"Question: {query}\n\n"
+            f"Write ONLY the corrected Python code:"
+        )
+        try:
+            retry_code = await _complete_chat(
+                [{"role": "user", "content": retry_prompt}],
+                max_tokens=500,
+                temperature=0.0,
+            )
+            retry_code = (retry_code or "").strip()
+            if retry_code.startswith("```"):
+                lines = retry_code.split("\n")
+                lines = [l for l in lines if not l.strip().startswith("```")]
+                retry_code = "\n".join(lines).strip()
+            if retry_code:
+                result = _execute_pandas_code(retry_code, df)
+                result["code"] = f"# Retry (original failed: {result.get('error', 'unknown')})\n{retry_code}"
+        except Exception:
+            pass  # keep the original error
+
     result["doc_id"] = doc.doc_id
     result["filename"] = doc.filename
     result["schema"] = schema

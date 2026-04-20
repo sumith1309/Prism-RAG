@@ -2172,13 +2172,15 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                 rerank_ms = int(retrieve_ms * 0.4)
 
                 # ── 4. Relevance gate ─────────────────────────────────────
-                # When the user explicitly picked a doc (preferred_doc_id),
-                # trust their choice — any chunks retrieved from that doc
-                # are "grounded enough". The user already saw the doc in
-                # the disambiguation card and chose it; re-gating on score
-                # thresholds just sends them to general-knowledge mode on
-                # vague queries like "tell about phase 1", which is wrong.
-                if req.preferred_doc_id and chunks:
+                # When the user explicitly scoped docs — either via the
+                # disambiguation card (preferred_doc_id) OR the Knowledge
+                # sidebar (doc_ids) — trust their choice. Any chunks from
+                # those docs are "grounded enough". Re-gating on score
+                # thresholds causes vague queries like "tell about hands on"
+                # to fall to general-knowledge even when the correct doc
+                # is selected right there in the sidebar.
+                user_scoped = bool(req.preferred_doc_id) or bool(req.doc_ids)
+                if user_scoped and chunks:
                     grounded_ok = True
                 else:
                     grounded_ok = bool(chunks) and _passes_bar(chunks)

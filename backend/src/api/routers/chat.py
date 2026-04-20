@@ -2263,13 +2263,15 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                         rbac_blocked = True
                     else:
                         # ── Fallback: no doc match → try analytics agent
-                        # before giving up to general knowledge. If the user
-                        # uploaded Excel/CSV files, their question might be
-                        # about that data even if the keyword detector didn't
-                        # fire (e.g. "which day did he work the longest?").
-                        _fallback_doc = await _find_analytics_doc(
-                            req.query, req.doc_ids or None, user.level, user.role
-                        )
+                        # before giving up to general knowledge. ONLY when
+                        # the user hasn't scoped to specific docs — if they
+                        # selected docs in the sidebar, they want to search
+                        # THOSE docs, not analyze an unrelated Excel file.
+                        _fallback_doc = None
+                        if not req.doc_ids and not req.preferred_doc_id:
+                            _fallback_doc = await _find_analytics_doc(
+                                req.query, None, user.level, user.role
+                            )
                         if _fallback_doc is not None:
                             t_fb = time.perf_counter()
                             _fb_result = await _run_analytics(

@@ -2131,7 +2131,16 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                 rerank_ms = int(retrieve_ms * 0.4)
 
                 # ── 4. Relevance gate ─────────────────────────────────────
-                grounded_ok = bool(chunks) and _passes_bar(chunks)
+                # When the user explicitly picked a doc (preferred_doc_id),
+                # trust their choice — any chunks retrieved from that doc
+                # are "grounded enough". The user already saw the doc in
+                # the disambiguation card and chose it; re-gating on score
+                # thresholds just sends them to general-knowledge mode on
+                # vague queries like "tell about phase 1", which is wrong.
+                if req.preferred_doc_id and chunks:
+                    grounded_ok = True
+                else:
+                    grounded_ok = bool(chunks) and _passes_bar(chunks)
 
                 # ── 4b. Agent: disambiguate when top chunks span distinct
                 # docs with comparable scores. Fires ONLY for grounded-

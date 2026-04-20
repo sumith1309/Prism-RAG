@@ -75,6 +75,16 @@ _DATA_KEYWORDS = {
     "expense", "budget", "cost", "profit", "loss", "growth",
     "compare", "trend", "over time", "monthly", "quarterly", "annually",
     "calculate", "compute", "aggregate", "pivot",
+    # Conversational data queries — natural phrasing
+    "longest", "shortest", "most", "least", "fewest",
+    "which day", "which month", "which week", "which employee",
+    "which department", "which year", "which date",
+    "how often", "how many times", "how much", "how long",
+    "when did", "when was", "who had", "who has", "who worked",
+    "worked the", "earned the", "spent the", "took the",
+    "late", "absent", "present", "overtime", "hours",
+    "attendance", "timecard", "time card", "punch", "clock in",
+    "clock out", "shift", "working days", "work hours",
 }
 
 

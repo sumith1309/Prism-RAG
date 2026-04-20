@@ -2262,6 +2262,89 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                         answer_mode = "refused" if user.level >= 4 else "unknown"
                         rbac_blocked = True
                     else:
+                        # ── Fallback: no doc match → try analytics agent
+                        # before giving up to general knowledge. If the user
+                        # uploaded Excel/CSV files, their question might be
+                        # about that data even if the keyword detector didn't
+                        # fire (e.g. "which day did he work the longest?").
+                        _fallback_doc = await _find_analytics_doc(
+                            req.query, req.doc_ids or None, user.level, user.role
+                        )
+                        if _fallback_doc is not None:
+                            t_fb = time.perf_counter()
+                            _fb_result = await _run_analytics(
+                                req.query, _fallback_doc, user.level
+                            )
+                            _fb_ms = int((time.perf_counter() - t_fb) * 1000)
+                            if _fb_result["ok"]:
+                                # Analytics succeeded — short-circuit to it
+                                yield {
+                                    "event": "analytics",
+                                    "data": json.dumps({
+                                        "ok": _fb_result["ok"],
+                                        "result": _fb_result["result"],
+                                        "result_type": _fb_result["result_type"],
+                                        "chart": _fb_result["chart"],
+                                        "error": _fb_result["error"],
+                                        "code": _fb_result["code"],
+                                        "doc_id": _fb_result["doc_id"],
+                                        "filename": _fb_result["filename"],
+                                    }),
+                                }
+                                if _fb_result["result_type"] == "table":
+                                    r = _fb_result["result"]
+                                    full_answer = (
+                                        f"Analytics result from **{_fb_result['filename']}**: "
+                                        f"{r.get('total_rows', 0)} rows."
+                                    )
+                                else:
+                                    full_answer = (
+                                        f"Analytics result from **{_fb_result['filename']}**: "
+                                        f"{_fb_result['result']}"
+                                    )
+                                answer_mode = "analytics"
+                                generate_ms = _fb_ms
+                                try:
+                                    models.append_turn(thread_id=thread_id, role="user", content=req.query)
+                                    models.append_turn(
+                                        thread_id=thread_id, role="assistant",
+                                        content=full_answer,
+                                        sources_json=json.dumps({"analytics": {
+                                            "result": _fb_result["result"],
+                                            "result_type": _fb_result["result_type"],
+                                            "chart": _fb_result["chart"],
+                                            "code": _fb_result["code"],
+                                            "doc_id": _fb_result["doc_id"],
+                                            "filename": _fb_result["filename"],
+                                        }}),
+                                        refused=False, answer_mode="analytics",
+                                    )
+                                    models.touch_thread(thread_id)
+                                    models.write_audit(models.AuditLog(
+                                        user_id=user.id, username=user.username,
+                                        user_level=user.level, query=req.query,
+                                        refused=False, returned_chunks=0,
+                                        allowed_doc_ids=_fb_result["doc_id"],
+                                        answer_mode="analytics",
+                                        latency_generate_ms=_fb_ms,
+                                        latency_total_ms=int((time.perf_counter() - t_total) * 1000),
+                                    ))
+                                except Exception:
+                                    pass
+                                yield {
+                                    "event": "done",
+                                    "data": json.dumps({
+                                        "ok": True, "answer_mode": "analytics",
+                                        "thread_id": thread_id, "cached": False,
+                                        "latency_ms": {"retrieve": retrieve_ms, "rerank": rerank_ms,
+                                                       "generate": _fb_ms,
+                                                       "total": int((time.perf_counter() - t_total) * 1000)},
+                                        "tokens": {"prompt": 0, "completion": 0},
+                                        "corrective_retries": 0, "faithfulness": -1.0,
+                                    }),
+                                }
+                                return
+                        # No analytics fallback — genuine general knowledge
                         answer_mode = "general"
 
                 # ── Agent: emit intent restatement right before streaming.

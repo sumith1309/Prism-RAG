@@ -360,25 +360,24 @@ def _schema_summary(df: pd.DataFrame, max_rows: int = 5) -> str:
 
 ANALYTICS_CODE_PROMPT = """You are a senior data analyst. Given a pandas DataFrame `df` and a user question, write Python code that answers it accurately.
 
-STEP 1 — FEASIBILITY CHECK:
-Before writing code, assess if this question can actually be answered from this data.
-- If the question asks about "number of employees" but the data is a single person's timecard, set:
-  result = "This file contains data for [N] employees. [Explain what the data actually shows and what questions it CAN answer]."
-- If a required column doesn't exist, set:
-  result = "Column not found: <name>. Available columns: " + str(list(df.columns))
-- Only proceed to computation if the data genuinely supports the question.
-
-STEP 2 — DATA CLEANING (always do this):
+STEP 1 — DATA CLEANING (always do this first):
 - df = df.dropna(how='all')  # remove empty rows
 - If _hours columns exist, use THOSE for math (8.70 = 8h42m). NEVER parse raw time strings.
 - Filter out rows where the key columns are NaN before aggregating.
 
-STEP 3 — COMPUTATION:
+STEP 2 — ALWAYS TRY TO COMPUTE FIRST:
+- Think creatively about how to answer. Example: "how many employees were present on each day?" → count distinct Employee_IDs that have a non-null Clock In per Date → find the max.
+- "Employees present" = rows with non-null Clock In or Total Time for that date.
 - Store your answer in `result` (DataFrame, Series, scalar, or dict).
 - `result` must be a COMPUTED VALUE (number, table, dict), NEVER a column name, dtype, or label.
 - For groupby, use columns marked as "ENTITY ID" or "categorical" in the schema.
 - For percentage calculations, round to 2 decimal places.
 - If the question asks for a chart, also create `chart`: dict with type ("bar"|"line"|"pie"), title (str), xAxis (list), series (list of {{name, data}}).
+
+STEP 3 — ONLY IF GENUINELY IMPOSSIBLE:
+- If a required column truly doesn't exist: result = "Column not found: <name>. Available: " + str(list(df.columns))
+- If after trying you truly cannot compute an answer, explain what the data DOES contain and suggest a question it CAN answer.
+- Do NOT give up without trying. Most questions CAN be answered by combining columns creatively.
 
 SCHEMA:
 {schema}

@@ -45,7 +45,6 @@ export function LandingPage() {
       <AnalyticsAgentSection />
       <EnterpriseSection />
       <IntegrationsSection />
-      <PricingSection />
       <CliSection />
       <ClosingCTA />
       <Footer />
@@ -95,9 +94,6 @@ function Nav() {
           </a>
           <a href="#enterprise" className="hidden sm:inline hover:text-light-fg transition-colors">
             Enterprise
-          </a>
-          <a href="#pricing" className="hidden sm:inline hover:text-light-fg transition-colors">
-            Pricing
           </a>
           <Link
             to="/signin"
@@ -628,101 +624,6 @@ function IntegrationsSection() {
   );
 }
 
-// ─── Pricing Section ─────────────────────────────────────────────────────
-function PricingSection() {
-  const plans = [
-    {
-      name: "Free",
-      price: "₹0",
-      period: "/month",
-      desc: "For individuals and small teams",
-      features: ["10 documents", "500 queries/day", "2 users", "Community support"],
-      cta: "Get started",
-      accent: false,
-    },
-    {
-      name: "Pro",
-      price: "₹5,000",
-      period: "/month",
-      desc: "For growing teams",
-      features: ["50 documents", "5,000 queries/day", "10 users", "Slack integration", "API access", "Priority support"],
-      cta: "Start free trial",
-      accent: true,
-    },
-    {
-      name: "Enterprise",
-      price: "Custom",
-      period: "",
-      desc: "For large organizations",
-      features: ["Unlimited documents", "Unlimited queries", "Unlimited users", "SSO / SAML", "On-prem deployment", "Dedicated support", "SLA guarantees"],
-      cta: "Contact sales",
-      accent: false,
-    },
-  ];
-
-  return (
-    <section id="pricing" className="max-w-5xl mx-auto px-6 py-24">
-      <div className="text-center mb-14">
-        <div className="text-[10.5px] uppercase tracking-[0.12em] font-semibold text-light-accent">
-          Pricing
-        </div>
-        <h2 className="mt-2 text-[30px] sm:text-[36px] font-semibold tracking-tight text-light-fg">
-          Simple, transparent pricing.
-        </h2>
-        <p className="mt-3 text-[14px] text-light-fgMuted mx-auto max-w-md">
-          Start free. Scale when you're ready. No hidden costs.
-        </p>
-      </div>
-
-      <div className="grid sm:grid-cols-3 gap-6">
-        {plans.map((p) => (
-          <motion.div
-            key={p.name}
-            initial={{ opacity: 0, y: 12 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.4 }}
-            className={`rounded-xl border p-6 ${
-              p.accent
-                ? "border-light-accent bg-white shadow-accent-glow"
-                : "border-light-border bg-white"
-            }`}
-          >
-            {p.accent && (
-              <div className="text-[9px] uppercase tracking-wider font-semibold text-light-accent mb-3 px-2 py-0.5 rounded-full bg-light-accent/10 inline-block">
-                Most popular
-              </div>
-            )}
-            <div className="text-[14px] font-semibold text-light-fg">{p.name}</div>
-            <div className="mt-2 flex items-baseline gap-1">
-              <span className="text-[32px] font-bold text-light-fg">{p.price}</span>
-              <span className="text-[13px] text-light-fgMuted">{p.period}</span>
-            </div>
-            <div className="text-[12.5px] text-light-fgMuted mt-1">{p.desc}</div>
-            <ul className="mt-5 space-y-2">
-              {p.features.map((f) => (
-                <li key={f} className="flex items-center gap-2 text-[12.5px] text-light-fgMuted">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-clearance-public shrink-0" strokeWidth={2} />
-                  {f}
-                </li>
-              ))}
-            </ul>
-            <button
-              className={`mt-6 w-full py-2 rounded-md text-[13px] font-semibold transition-colors ${
-                p.accent
-                  ? "bg-light-accent text-white hover:bg-light-accentHover"
-                  : "bg-light-bg border border-light-border text-light-fg hover:border-light-accent/50"
-              }`}
-            >
-              {p.cta}
-            </button>
-          </motion.div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 // ─── CLI section ─────────────────────────────────────────────────────────
 function CliSection() {
   const repoUrl = "https://github.com/sumith1309/Prism-RAG";
@@ -856,7 +757,6 @@ function Footer() {
             <div className="space-y-2 text-[12.5px] text-light-fgMuted">
               <Link to="/pipeline" className="block hover:text-light-accent transition-colors">Pipeline Lab</Link>
               <a href="#features" className="block hover:text-light-accent transition-colors">Features</a>
-              <a href="#pricing" className="block hover:text-light-accent transition-colors">Pricing</a>
               <a href="#enterprise" className="block hover:text-light-accent transition-colors">Enterprise</a>
             </div>
           </div>

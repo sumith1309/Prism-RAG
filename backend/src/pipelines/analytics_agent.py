@@ -161,11 +161,16 @@ def _fix_messy_headers(df: pd.DataFrame) -> pd.DataFrame:
 
     if best_row >= 0 and best_score >= 3:
         new_headers = df.iloc[best_row].astype(str).tolist()
+        # Preserve the _sheet column name — it's our multi-sheet identifier
+        old_cols = list(df.columns)
         df = df.iloc[best_row + 1:].reset_index(drop=True)
-        df.columns = new_headers
-        # Drop the _sheet column rename if it got caught
-        if "_sheet" in df.columns:
-            pass  # keep it
+        final_headers = []
+        for i, h in enumerate(new_headers):
+            if i < len(old_cols) and old_cols[i] == "_sheet":
+                final_headers.append("Employee_ID")
+            else:
+                final_headers.append(h)
+        df.columns = final_headers
     return df
 
 
@@ -232,48 +237,99 @@ def load_dataframe(doc: store.Document) -> pd.DataFrame:
 
 
 def _schema_summary(df: pd.DataFrame, max_rows: int = 5) -> str:
-    """Generate a concise schema + sample for the LLM prompt."""
+    """Generate a rich schema + sample for the LLM prompt.
+
+    Includes data quality notes so the LLM knows how to handle messy data:
+    - Which columns are mostly empty (skip them)
+    - Which columns have _hours equivalents (use those for math)
+    - Which rows are likely metadata/empty (filter them)
+    - What the _sheet column means (employee/entity ID)
+    """
     lines = []
     lines.append(f"Shape: {df.shape[0]} rows x {df.shape[1]} columns")
     lines.append("")
-    lines.append("Columns:")
+
+    # Separate useful vs junk columns
+    useful_cols = []
+    junk_cols = []
     for col in df.columns:
+        nulls = int(df[col].isna().sum())
+        null_pct = nulls / max(len(df), 1)
+        # Check if column values are just the column name repeated
+        non_null = df[col].dropna()
+        if len(non_null) > 0:
+            most_common = non_null.astype(str).value_counts().iloc[0]
+            most_common_val = non_null.astype(str).value_counts().index[0]
+            if most_common / len(non_null) > 0.9 and most_common_val == str(col):
+                junk_cols.append(col)
+                continue
+        if null_pct > 0.9:
+            junk_cols.append(col)
+            continue
+        useful_cols.append(col)
+
+    lines.append("Useful columns:")
+    for col in useful_cols:
         dtype = str(df[col].dtype)
         nunique = df[col].nunique()
         nulls = int(df[col].isna().sum())
-        sample_vals = df[col].dropna().head(3).tolist()
+        null_pct = round(nulls / max(len(df), 1) * 100)
+        sample_vals = df[col].dropna().head(4).tolist()
         sample_str = ", ".join(str(v) for v in sample_vals)
-        lines.append(f"  - {col} ({dtype}, {nunique} unique, {nulls} nulls) — e.g. {sample_str}")
+        annotation = ""
+        if col.endswith("_hours"):
+            annotation = " [USE THIS for calculations — decimal hours from time strings]"
+        elif "employee" in col.lower() or "id" in col.lower() or col == "_sheet":
+            annotation = f" [ENTITY ID — use for groupby to compare across employees/entities ({nunique} distinct)]"
+        elif dtype in ("object", "str") and nunique < 100 and col not in ("Date", "Weekday") and nunique > 1 and nunique < len(df) * 0.1:
+            annotation = f" [categorical — {nunique} groups, use for groupby]"
+        lines.append(f"  - {col} ({dtype}, {nunique} unique, {null_pct}% null) — e.g. {sample_str}{annotation}")
+
+    if junk_cols:
+        lines.append(f"\nIgnore these columns (mostly empty or just header text repeated): {', '.join(junk_cols)}")
+
+    # Data quality notes
+    lines.append("\nData quality notes:")
+    null_rows = df[useful_cols].isna().all(axis=1).sum()
+    if null_rows > 0:
+        lines.append(f"  - {null_rows} rows are completely empty (days off / holidays) — FILTER THEM OUT with .dropna()")
+    hours_cols = [c for c in df.columns if c.endswith("_hours")]
+    if hours_cols:
+        lines.append(f"  - For time-based calculations, use the _hours columns ({', '.join(hours_cols)}) — they are decimal hours (8.70 = 8h42m)")
+        lines.append(f"  - Do NOT try to parse the original time strings (Clock In, Total Time, etc.) — use the _hours versions")
+
     lines.append("")
-    lines.append(f"First {max_rows} rows:")
-    lines.append(df.head(max_rows).to_string(index=False, max_colwidth=40))
+    lines.append(f"First {max_rows} data rows (non-empty):")
+    # Show non-empty rows for the sample
+    clean_sample = df.dropna(subset=[c for c in useful_cols if c in df.columns and df[c].dtype != "object"][:1] or useful_cols[:1]).head(max_rows)
+    lines.append(clean_sample[useful_cols].to_string(index=False, max_colwidth=35))
     return "\n".join(lines)
 
 
 # ── LLM code generation prompt ────────────────────────────────────────────
 
-ANALYTICS_CODE_PROMPT = """You are a data analyst assistant. Given a pandas DataFrame `df` and a user question, write Python code that answers the question.
+ANALYTICS_CODE_PROMPT = """You are a senior data analyst. Given a pandas DataFrame `df` and a user question, write Python code that answers it accurately.
 
-RULES:
-- The DataFrame is already loaded as `df`. Do NOT import anything or read files.
-- Store your final answer in a variable called `result`. It must be one of:
-  - A pandas DataFrame (for tables)
-  - A pandas Series (for single-column results)
-  - A scalar (int, float, str) for single values
-  - A dict for structured answers
-- Keep the code concise. No plots, no prints, no file I/O.
-- If the question asks for a chart/visualization, also create a variable called `chart` containing an ECharts option dict with keys: type ("bar"|"line"|"pie"), title (str), xAxis (list), series (list of {{name, data}}).
-- If no chart is needed, do NOT create a `chart` variable.
-- Handle edge cases: if a column doesn't exist, set result = "Column not found: <name>"
+CRITICAL RULES:
+- `df` is already loaded. Do NOT import anything or read files.
+- Store your answer in `result` (DataFrame, Series, scalar, or dict).
+- ALWAYS start by cleaning the data:
+  1. Drop completely empty rows: df = df.dropna(how='all')
+  2. If time-based columns exist with _hours suffix, use THOSE for math (they are decimal hours, e.g. 8.70 = 8h42m). NEVER parse the raw time strings.
+  3. Filter out non-data rows (metadata, repeated headers) before calculations.
+- For groupby operations, check which column represents entities/groups (look for columns marked as "group/entity ID" in the schema).
+- Handle NaN: use .dropna() on the columns you need BEFORE aggregating.
 - For percentage calculations, round to 2 decimal places.
-- For monetary values, don't round — keep full precision.
+- If the question asks for a chart, create a `chart` variable: dict with keys type ("bar"|"line"|"pie"), title (str), xAxis (list), series (list of {{name, data}}).
+- If a column doesn't exist, set result = "Column not found: <name>. Available: " + str(list(df.columns))
+- Be precise: "average working hours" means df["Total Time_hours"].mean() or similar _hours column, NOT parsing time strings.
 
 SCHEMA:
 {schema}
 
 QUESTION: {query}
 
-Write ONLY the Python code, no explanation, no markdown fences, no comments:"""
+Write ONLY the Python code, no explanation, no markdown fences:"""
 
 
 # ── Sandboxed execution ───────────────────────────────────────────────────

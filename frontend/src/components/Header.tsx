@@ -1,4 +1,5 @@
-import { BarChart3, LogOut, MessagesSquare, Settings2, Shield, ShieldCheck } from "lucide-react";
+import { useEffect, useState } from "react";
+import { BarChart3, Building2, LogOut, MessagesSquare, Settings2, Shield, ShieldCheck } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 
 import { useAppStore } from "@/store/appStore";
@@ -17,6 +18,16 @@ export function Header({
   const loc = useLocation();
   const navigate = useNavigate();
 
+  const [orgName, setOrgName] = useState<string>("");
+  useEffect(() => {
+    fetch("/api/orgs/current", {
+      headers: { Authorization: `Bearer ${localStorage.getItem("technova.token") || ""}` },
+    })
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => d && setOrgName(d.name))
+      .catch(() => {});
+  }, []);
+
   const onAuditRoute = loc.pathname.startsWith("/app/audit");
   const onAnalyticsRoute = loc.pathname.startsWith("/app/analytics");
   const onAppMeta = onAuditRoute || onAnalyticsRoute;
@@ -34,8 +45,14 @@ export function Header({
         </div>
         <div>
           <div className="text-[13px] font-semibold tracking-tight text-fg">Prism RAG</div>
-          <div className="text-[10px] uppercase tracking-wider text-fg-subtle -mt-0.5">
+          <div className="text-[10px] uppercase tracking-wider text-fg-subtle -mt-0.5 flex items-center gap-1.5">
             Hybrid retrieval · 4-level RBAC
+            {orgName && (
+              <span className="inline-flex items-center gap-1 ml-1 px-1.5 py-0.5 rounded border border-border bg-bg text-[9px] font-semibold text-fg-muted normal-case tracking-normal">
+                <Building2 className="w-2.5 h-2.5" strokeWidth={2} />
+                {orgName}
+              </span>
+            )}
           </div>
         </div>
 

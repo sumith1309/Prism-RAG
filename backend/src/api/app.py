@@ -3,7 +3,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routers import audit, auth, chat, documents, graph, meta, playground, threads, welcome
+from src.api.routers import (
+    audit, auth, chat, documents, graph, integrations,
+    meta, organizations, playground, sso, threads, welcome,
+)
 
 
 @asynccontextmanager
@@ -13,6 +16,12 @@ async def lifespan(_: FastAPI):
     from src.core.store import _get_engine
 
     _get_engine()
+    # Ensure default org exists for multi-tenant demo
+    from src.api.routers.organizations import ensure_default_org
+    try:
+        ensure_default_org()
+    except Exception:
+        pass  # table may not exist yet on first boot — that's fine
     yield
 
 
@@ -35,6 +44,9 @@ app.include_router(meta.router)
 app.include_router(playground.router)
 app.include_router(welcome.router)
 app.include_router(graph.router)
+app.include_router(organizations.router)
+app.include_router(integrations.router)
+app.include_router(sso.router)
 
 
 @app.get("/")

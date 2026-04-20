@@ -132,28 +132,103 @@ def _raw_path(doc: store.Document) -> Path:
     return Path(settings.RAW_DIR) / f"{doc.doc_id}{ext}"
 
 
+def _fix_messy_headers(df: pd.DataFrame) -> pd.DataFrame:
+    """Auto-detect and fix messy Excel headers.
+
+    Many real-world Excel files have metadata rows above the actual data
+    header (e.g. "From 2026-02-01 To 2026-02-28" in row 0, employee info
+    in row 1, actual column names in row 2). This creates Unnamed: columns.
+
+    Fix: scan the first 5 rows for the one with the most unique non-null
+    string values — that's likely the real header row. Promote it and
+    drop the metadata rows above.
+    """
+    unnamed_count = sum(1 for c in df.columns if str(c).startswith("Unnamed"))
+    if unnamed_count < len(df.columns) * 0.5:
+        return df  # headers look fine
+
+    best_row = -1
+    best_score = 0
+    for i in range(min(5, len(df))):
+        row_vals = df.iloc[i].dropna().astype(str).tolist()
+        # Score: count of unique string values that look like column names
+        # (short, no digits-only, no long sentences)
+        good = [v for v in row_vals if 2 <= len(v) <= 30 and not v.replace(".", "").isdigit()]
+        score = len(set(good))
+        if score > best_score:
+            best_score = score
+            best_row = i
+
+    if best_row >= 0 and best_score >= 3:
+        new_headers = df.iloc[best_row].astype(str).tolist()
+        df = df.iloc[best_row + 1:].reset_index(drop=True)
+        df.columns = new_headers
+        # Drop the _sheet column rename if it got caught
+        if "_sheet" in df.columns:
+            pass  # keep it
+    return df
+
+
+def _clean_time_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Convert hh:mm or hh:mm:ss time strings to decimal hours for math.
+
+    Many time-tracking Excel files store working hours as '08:42' strings.
+    The LLM can't do math on these — convert to float hours (8.7).
+    Adds a new column '{col}_hours' for each detected time column.
+    """
+    import re
+    time_pattern = re.compile(r"^\d{1,2}:\d{2}(:\d{2})?$")
+
+    for col in df.columns:
+        if col.startswith("_"):
+            continue
+        sample = df[col].dropna().head(10).astype(str).tolist()
+        time_matches = sum(1 for v in sample if time_pattern.match(v.strip()))
+        if time_matches >= len(sample) * 0.5 and time_matches >= 3:
+            # Convert to decimal hours
+            def to_hours(val):
+                try:
+                    parts = str(val).strip().split(":")
+                    h = int(parts[0])
+                    m = int(parts[1]) if len(parts) > 1 else 0
+                    s = int(parts[2]) if len(parts) > 2 else 0
+                    return round(h + m / 60 + s / 3600, 2)
+                except (ValueError, IndexError):
+                    return None
+            df[f"{col}_hours"] = df[col].apply(to_hours)
+    return df
+
+
 def load_dataframe(doc: store.Document) -> pd.DataFrame:
-    """Load a tabular document into a pandas DataFrame."""
+    """Load a tabular document into a pandas DataFrame.
+
+    Applies auto-cleaning:
+      1. Fix messy headers (Unnamed: columns → promote real header row)
+      2. Convert time strings (hh:mm) to decimal hours for math
+    """
     path = _raw_path(doc)
     if not path.exists():
         raise FileNotFoundError(f"Raw file not found: {path}")
     ext = path.suffix.lower()
     if ext == ".csv":
-        return pd.read_csv(path)
+        df = pd.read_csv(path)
     elif ext in {".xlsx", ".xls"}:
-        # Read first sheet by default; multi-sheet handled via sheet_name
         xls = pd.ExcelFile(path)
         if len(xls.sheet_names) == 1:
-            return pd.read_excel(path, sheet_name=0)
-        # Multi-sheet: concat all sheets with a _sheet column
-        frames = []
-        for name in xls.sheet_names:
-            df = pd.read_excel(path, sheet_name=name)
-            df["_sheet"] = name
-            frames.append(df)
-        return pd.concat(frames, ignore_index=True)
+            df = pd.read_excel(path, sheet_name=0)
+        else:
+            frames = []
+            for name in xls.sheet_names:
+                sheet_df = pd.read_excel(path, sheet_name=name)
+                sheet_df["_sheet"] = name
+                frames.append(sheet_df)
+            df = pd.concat(frames, ignore_index=True)
     else:
         raise ValueError(f"Not a tabular file: {ext}")
+
+    df = _fix_messy_headers(df)
+    df = _clean_time_columns(df)
+    return df
 
 
 def _schema_summary(df: pd.DataFrame, max_rows: int = 5) -> str:

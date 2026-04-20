@@ -360,19 +360,25 @@ def _schema_summary(df: pd.DataFrame, max_rows: int = 5) -> str:
 
 ANALYTICS_CODE_PROMPT = """You are a senior data analyst. Given a pandas DataFrame `df` and a user question, write Python code that answers it accurately.
 
-CRITICAL RULES:
-- `df` is already loaded. Do NOT import anything or read files.
+STEP 1 — FEASIBILITY CHECK:
+Before writing code, assess if this question can actually be answered from this data.
+- If the question asks about "number of employees" but the data is a single person's timecard, set:
+  result = "This file contains data for [N] employees. [Explain what the data actually shows and what questions it CAN answer]."
+- If a required column doesn't exist, set:
+  result = "Column not found: <name>. Available columns: " + str(list(df.columns))
+- Only proceed to computation if the data genuinely supports the question.
+
+STEP 2 — DATA CLEANING (always do this):
+- df = df.dropna(how='all')  # remove empty rows
+- If _hours columns exist, use THOSE for math (8.70 = 8h42m). NEVER parse raw time strings.
+- Filter out rows where the key columns are NaN before aggregating.
+
+STEP 3 — COMPUTATION:
 - Store your answer in `result` (DataFrame, Series, scalar, or dict).
-- ALWAYS start by cleaning the data:
-  1. Drop completely empty rows: df = df.dropna(how='all')
-  2. If time-based columns exist with _hours suffix, use THOSE for math (they are decimal hours, e.g. 8.70 = 8h42m). NEVER parse the raw time strings.
-  3. Filter out non-data rows (metadata, repeated headers) before calculations.
-- For groupby operations, check which column represents entities/groups (look for columns marked as "group/entity ID" in the schema).
-- Handle NaN: use .dropna() on the columns you need BEFORE aggregating.
+- `result` must be a COMPUTED VALUE (number, table, dict), NEVER a column name, dtype, or label.
+- For groupby, use columns marked as "ENTITY ID" or "categorical" in the schema.
 - For percentage calculations, round to 2 decimal places.
-- If the question asks for a chart, create a `chart` variable: dict with keys type ("bar"|"line"|"pie"), title (str), xAxis (list), series (list of {{name, data}}).
-- If a column doesn't exist, set result = "Column not found: <name>. Available: " + str(list(df.columns))
-- Be precise: "average working hours" means df["Total Time_hours"].mean() or similar _hours column, NOT parsing time strings.
+- If the question asks for a chart, also create `chart`: dict with type ("bar"|"line"|"pie"), title (str), xAxis (list), series (list of {{name, data}}).
 
 SCHEMA:
 {schema}
@@ -522,6 +528,55 @@ def _execute_pandas_code(code: str, df: pd.DataFrame) -> dict[str, Any]:
             "result_type": "error",
             "chart": None,
             "error": f"Failed to serialize result: {e}",
+            "code": code,
+        }
+
+    # ── Result validation ─────────────────────────────────────────────
+    # Catch nonsensical results: column names, dtype labels, NaN, empty
+    # strings, row labels that the LLM returned as if they were answers.
+    col_names_lower = {str(c).lower() for c in df.columns}
+    _DTYPE_LABELS = {"int64", "float64", "object", "str", "bool", "datetime64", "string", "category"}
+
+    def _is_nonsense(val) -> str | None:
+        """Return a reason string if the result is nonsensical, else None."""
+        if val is None:
+            return "Result is None"
+        if isinstance(val, float) and (val != val):  # NaN
+            return "Result is NaN"
+        if isinstance(val, str):
+            s = val.strip().lower()
+            if not s:
+                return "Result is empty string"
+            if s in col_names_lower:
+                return f"Result is a column name ('{val}'), not a computed value"
+            if s in _DTYPE_LABELS:
+                return f"Result is a dtype label ('{val}'), not a computed value"
+            if s in {"nan", "none", "null", "nat"}:
+                return f"Result is '{val}'"
+        if isinstance(val, dict) and not val:
+            return "Result is empty dict"
+        return None
+
+    nonsense_reason = None
+    if result_type == "scalar":
+        nonsense_reason = _is_nonsense(result_data)
+    elif result_type == "table" and isinstance(result_data, dict):
+        rows = result_data.get("rows", [])
+        cols = result_data.get("columns", [])
+        if not rows:
+            nonsense_reason = "Result table is empty"
+        elif len(rows) == 1 and len(cols) == 1:
+            # Single-cell table — check if the value is nonsense
+            only_val = rows[0].get(cols[0]) if cols else None
+            nonsense_reason = _is_nonsense(only_val)
+
+    if nonsense_reason:
+        return {
+            "ok": False,
+            "result": None,
+            "result_type": "error",
+            "chart": None,
+            "error": f"Invalid result: {nonsense_reason}. The generated code ran but didn't produce a meaningful answer. This may mean the question can't be answered from this data.",
             "code": code,
         }
 

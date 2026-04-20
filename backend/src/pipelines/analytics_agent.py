@@ -372,7 +372,9 @@ STEP 2 — ALWAYS TRY TO COMPUTE FIRST:
 - `result` must be a COMPUTED VALUE (number, table, dict), NEVER a column name, dtype, or label.
 - For groupby, use columns marked as "ENTITY ID" or "categorical" in the schema.
 - For percentage calculations, round to 2 decimal places.
-- If the question asks for a chart, also create `chart`: dict with type ("bar"|"line"|"pie"), title (str), xAxis (list), series (list of {{name, data}}).
+- If the question asks for a chart, or if the result is a time-series / distribution, ALWAYS create a `chart` variable showing ALL data points (not just the aggregate). For example, "highest absent day" should chart absent counts for EVERY day, not just the max.
+- Chart format: dict with type ("bar"|"line"|"pie"), title (str), xAxis (list of ALL labels), series (list of {{name, data: list of ALL values}}).
+- For scalar answers about a max/min/peak, ALWAYS include context: which date, which employee, which category. E.g. result = "57 employees absent on 01-02-2026 (Sunday)" not just 57.
 
 STEP 3 — ONLY IF GENUINELY IMPOSSIBLE:
 - If a required column truly doesn't exist: result = "Column not found: <name>. Available: " + str(list(df.columns))

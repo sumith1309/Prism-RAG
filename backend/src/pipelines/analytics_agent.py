@@ -448,9 +448,16 @@ async def find_target_doc(
     """
     tabular = list_tabular_docs(max_doc_level=user_level)
 
-    # Filter by doc_ids scope if provided
+    # Filter by doc_ids scope if provided — but if the scoped set
+    # contains NO tabular docs, fall back to all visible tabular docs.
+    # This handles the common case where the user has .docx/.pdf files
+    # selected in the Knowledge sidebar but asks a data question that
+    # should hit an uploaded Excel/CSV.
     if doc_ids:
-        tabular = [d for d in tabular if d.doc_id in doc_ids]
+        scoped = [d for d in tabular if d.doc_id in doc_ids]
+        if scoped:
+            tabular = scoped
+        # else: keep all tabular docs — the sidebar scope doesn't have any
 
     if not tabular:
         return None

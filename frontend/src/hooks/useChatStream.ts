@@ -35,6 +35,8 @@ function turnToMessage(turn: ThreadTurn): ChatMessage {
   if (turn.answer_mode === "social" && turn.welcome) {
     msg.welcome = turn.welcome;
   }
+  // Analytics turns store the result payload in sources_json.analytics
+  // (parsed server-side — but we also handle the raw case here).
   return msg;
 }
 
@@ -377,6 +379,20 @@ export function useChatStream() {
                     : m
                 )
               ),
+            onAnalytics: (payload) =>
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantMsg.id
+                    ? {
+                        ...m,
+                        analytics: payload,
+                        answerMode: "analytics" as AnswerMode,
+                        streaming: false,
+                        sources: [],
+                      }
+                    : m
+                )
+              ),
             onDone: (answerMode, thread_id, meta) => {
               const finalMode = (answerMode as AnswerMode) || "grounded";
               // Backend can demote grounded → unknown post-generation when the
@@ -391,7 +407,8 @@ export function useChatStream() {
                 finalMode === "system" ||
                 finalMode === "disambiguate" ||
                 finalMode === "comparison" ||
-                finalMode === "blocked";
+                finalMode === "blocked" ||
+                finalMode === "analytics";
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantMsg.id

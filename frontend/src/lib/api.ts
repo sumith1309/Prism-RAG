@@ -389,6 +389,7 @@ export interface ChatStreamCallbacks {
   onTopKExpanded?: (from: number, to: number, subQuestions: number) => void;
   onFollowups?: (questions: string[]) => void;
   onBlocked?: (message: string, reason: string) => void;
+  onAnalytics?: (payload: any) => void;
   onDone: (answerMode: string, thread_id: string, meta: DoneMeta) => void;
   onError: (message: string) => void;
 }
@@ -482,6 +483,9 @@ export async function streamChat(
           break;
         case "blocked":
           callbacks.onBlocked?.(data.message || "Blocked.", data.reason || "unknown");
+          break;
+        case "analytics":
+          callbacks.onAnalytics?.(data);
           break;
         case "done":
           callbacks.onDone(data.answer_mode || "grounded", data.thread_id || "", {

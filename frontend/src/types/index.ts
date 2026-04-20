@@ -91,6 +91,22 @@ export interface ChatMessage {
   corrective_rewrite?: string;
   contextualized_query?: string;
   welcome?: WelcomePayload;
+  // Analytics agent result — table + optional chart
+  analytics?: {
+    ok: boolean;
+    result: any;
+    result_type: "table" | "scalar" | "error";
+    chart: {
+      type: "bar" | "line" | "pie";
+      title: string;
+      xAxis?: string[];
+      series: { name: string; data: number[] }[];
+    } | null;
+    error: string | null;
+    code: string;
+    doc_id: string;
+    filename: string;
+  };
   // Suggested follow-up questions (3 clickable pills after the answer)
   followups?: string[];
   // Feedback state — user's vote on this answer (+1 or -1, null = no vote)
@@ -185,7 +201,8 @@ export type AnswerMode =
   | "system"
   | "disambiguate"
   | "comparison"
-  | "blocked";
+  | "blocked"
+  | "analytics";
 
 export interface ComparisonColumn {
   doc_id: string;

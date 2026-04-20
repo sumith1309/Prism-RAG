@@ -34,3 +34,8 @@ pdf2image==1.17.0
 # uses Postgres instead of the default SQLite file. psycopg driver
 # loaded lazily — SQLite-only installs don't need Postgres running.
 psycopg2-binary==2.9.9
+# SQL Analytics Agent — pandas for tabular data queries on uploaded Excel/CSV.
+pandas>=2.2.0
+openpyxl>=3.1.0
+# pdfplumber for table extraction from PDFs
+pdfplumber>=0.11.0

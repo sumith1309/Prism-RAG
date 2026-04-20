@@ -62,6 +62,9 @@ def get_my_thread(thread_id: str, user: CurrentUser = Depends(get_current_user))
                         }
                     elif "welcome" in parsed:
                         welcome = parsed["welcome"]
+                    # Analytics turns: store the result payload for replay
+                    elif "analytics" in parsed:
+                        pass  # content text is sufficient for replay
             except Exception:
                 pass
         turns_out.append(

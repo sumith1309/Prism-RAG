@@ -1662,6 +1662,114 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
             }
             return
 
+        # ── 1d. Analytics agent short-circuit ─────────────────────────────
+        # When the query looks like a data question AND tabular docs
+        # (Excel/CSV) are available, route to the analytics agent
+        # instead of the normal RAG pipeline. The agent loads the raw
+        # file into pandas, asks the LLM to write code, and executes it.
+        from src.pipelines.analytics_agent import (
+            find_target_doc as _find_analytics_doc,
+            looks_like_data_query as _is_data_query,
+            run_analytics_query as _run_analytics,
+        )
+
+        if _is_data_query(req.query):
+            target_doc = await _find_analytics_doc(
+                req.query, req.doc_ids or None, user.level, user.role
+            )
+            if target_doc is not None:
+                t_analytics = time.perf_counter()
+                analytics_result = await _run_analytics(
+                    req.query, target_doc, user.level
+                )
+                analytics_ms = int((time.perf_counter() - t_analytics) * 1000)
+
+                yield {
+                    "event": "analytics",
+                    "data": json.dumps({
+                        "ok": analytics_result["ok"],
+                        "result": analytics_result["result"],
+                        "result_type": analytics_result["result_type"],
+                        "chart": analytics_result["chart"],
+                        "error": analytics_result["error"],
+                        "code": analytics_result["code"],
+                        "doc_id": analytics_result["doc_id"],
+                        "filename": analytics_result["filename"],
+                    }),
+                }
+
+                # Build a text summary for persistence
+                if analytics_result["ok"]:
+                    if analytics_result["result_type"] == "table":
+                        r = analytics_result["result"]
+                        full_answer = (
+                            f"Analytics result from **{analytics_result['filename']}**: "
+                            f"{r.get('total_rows', 0)} rows"
+                            + (f" (showing first 50)" if r.get("truncated") else "")
+                            + "."
+                        )
+                    else:
+                        full_answer = (
+                            f"Analytics result from **{analytics_result['filename']}**: "
+                            f"{analytics_result['result']}"
+                        )
+                else:
+                    full_answer = (
+                        f"Analytics query failed: {analytics_result['error']}"
+                    )
+                answer_mode = "analytics"
+
+                try:
+                    models.append_turn(thread_id=thread_id, role="user", content=req.query)
+                    models.append_turn(
+                        thread_id=thread_id, role="assistant",
+                        content=full_answer,
+                        sources_json=json.dumps({
+                            "analytics": {
+                                "result": analytics_result["result"],
+                                "result_type": analytics_result["result_type"],
+                                "chart": analytics_result["chart"],
+                                "code": analytics_result["code"],
+                                "doc_id": analytics_result["doc_id"],
+                                "filename": analytics_result["filename"],
+                            }
+                        }),
+                        refused=False, answer_mode="analytics",
+                    )
+                    models.touch_thread(thread_id)
+                    models.write_audit(
+                        models.AuditLog(
+                            user_id=user.id, username=user.username,
+                            user_level=user.level, query=req.query,
+                            refused=False, returned_chunks=0,
+                            allowed_doc_ids=analytics_result["doc_id"],
+                            answer_mode="analytics",
+                            latency_generate_ms=analytics_ms,
+                            latency_total_ms=int((time.perf_counter() - t_total) * 1000),
+                        )
+                    )
+                except Exception:
+                    pass
+
+                yield {
+                    "event": "done",
+                    "data": json.dumps({
+                        "ok": True,
+                        "answer_mode": "analytics",
+                        "thread_id": thread_id,
+                        "cached": False,
+                        "latency_ms": {
+                            "retrieve": 0, "rerank": 0,
+                            "generate": analytics_ms,
+                            "total": int((time.perf_counter() - t_total) * 1000),
+                        },
+                        "tokens": {"prompt": 0, "completion": 0},
+                        "corrective_retries": 0,
+                        "faithfulness": -1.0,
+                    }),
+                }
+                return
+
         # ── Agent: cross-doc comparison short-circuit (Tier 2.2) ─────────
         # User clicked "Compare all" on the disambiguation card. Run
         # retrieval + generation ONCE per doc, scoped to that single

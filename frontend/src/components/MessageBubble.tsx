@@ -22,6 +22,7 @@ import { submitFeedback } from "@/lib/api";
 import { AccessRequestBanner } from "./AccessRequestBanner";
 import { CitationCheckChip } from "./CitationCheckChip";
 import { ComparisonCard } from "./ComparisonCard";
+import { DataCard } from "./DataCard";
 import { ConfidenceChip } from "./ConfidenceChip";
 import { DisambiguationCard } from "./DisambiguationCard";
 import { IntentMirror } from "./IntentMirror";
@@ -147,6 +148,11 @@ export function MessageBubble({
   // when the user clicked "Compare all" on a disambiguation card.
   if (message.answerMode === "comparison" && message.comparison?.columns?.length) {
     return <ComparisonCard columns={message.comparison.columns} />;
+  }
+
+  // Analytics: data query answered by the SQL analytics agent
+  if (message.answerMode === "analytics" && message.analytics) {
+    return <DataCard data={message.analytics} />;
   }
 
   // Blocked: prompt injection guardrail triggered

@@ -204,12 +204,61 @@ def _clean_time_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _strip_metadata_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Remove summary/metadata rows that aren't real data.
+
+    Common patterns in real-world Excel files:
+      - "Statistics" / "Total" / "Grand Total" / "Summary" rows
+      - "From 2026-02-01 To 2026-02-28" date-range headers
+      - "Employee: Name, Gender [ID]" employee info rows
+      - Rows where the first column contains long text (metadata)
+
+    These rows pollute aggregations (a 'Statistics' row with Total Time
+    = 157:50 converts to 157.83 hours, destroying any average).
+    """
+    if df.empty:
+        return df
+
+    # Find the first text column (usually Date or a label column)
+    # Check for both 'object' and 'str'/'string' dtypes (pandas 2.x uses StringDtype)
+    text_cols = [c for c in df.columns if str(df[c].dtype) in ("object", "str", "string", "string[python]", "string[pyarrow]") and not c.startswith("_") and not c.endswith("_hours")]
+    if not text_cols:
+        return df
+
+    first_col = text_cols[0]
+
+    _METADATA_PATTERNS = [
+        "statistics", "total", "grand total", "summary", "subtotal",
+        "employee:", "from ", "position:", "department:",
+        "note:", "remarks", "disclaimer",
+    ]
+
+    def _is_metadata(val):
+        if pd.isna(val):
+            return False
+        s = str(val).strip().lower()
+        if not s:
+            return False
+        # Long text in date/label column = metadata
+        if len(s) > 40:
+            return True
+        return any(s.startswith(p) or s == p for p in _METADATA_PATTERNS)
+
+    mask = df[first_col].apply(_is_metadata)
+    removed = mask.sum()
+    if removed > 0:
+        df = df[~mask].reset_index(drop=True)
+
+    return df
+
+
 def load_dataframe(doc: store.Document) -> pd.DataFrame:
     """Load a tabular document into a pandas DataFrame.
 
     Applies auto-cleaning:
       1. Fix messy headers (Unnamed: columns → promote real header row)
-      2. Convert time strings (hh:mm) to decimal hours for math
+      2. Strip metadata/summary rows (Statistics, Employee:, From..To..)
+      3. Convert time strings (hh:mm) to decimal hours for math
     """
     path = _raw_path(doc)
     if not path.exists():
@@ -232,6 +281,7 @@ def load_dataframe(doc: store.Document) -> pd.DataFrame:
         raise ValueError(f"Not a tabular file: {ext}")
 
     df = _fix_messy_headers(df)
+    df = _strip_metadata_rows(df)
     df = _clean_time_columns(df)
     return df
 
@@ -281,7 +331,7 @@ def _schema_summary(df: pd.DataFrame, max_rows: int = 5) -> str:
             annotation = " [USE THIS for calculations — decimal hours from time strings]"
         elif "employee" in col.lower() or "id" in col.lower() or col == "_sheet":
             annotation = f" [ENTITY ID — use for groupby to compare across employees/entities ({nunique} distinct)]"
-        elif dtype in ("object", "str") and nunique < 100 and col not in ("Date", "Weekday") and nunique > 1 and nunique < len(df) * 0.1:
+        elif dtype in ("object", "str", "string", "string[python]", "string[pyarrow]") and nunique < 100 and col not in ("Date", "Weekday") and nunique > 1 and nunique < len(df) * 0.1:
             annotation = f" [categorical — {nunique} groups, use for groupby]"
         lines.append(f"  - {col} ({dtype}, {nunique} unique, {null_pct}% null) — e.g. {sample_str}{annotation}")
 

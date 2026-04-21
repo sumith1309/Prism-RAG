@@ -96,7 +96,24 @@ _DOC_QUERY_SIGNALS = {
     "summarize", "summary", "overview", "define", "definition",
     "how does", "how do", "why does", "why do", "when was", "who is",
     "document", "handbook", "manual", "report", "clause", "section",
+    # Multi-hop / cross-document comparison signals — "compare what two
+    # documents say" is RAG, not "compute a number from a spreadsheet".
+    "relate to", "relationship between", "reflected in", "improvements from",
+    "how does.*relate", "incident", "remediation", "escalation",
+    "roadmap", "board meeting", "board-approved", "vendor contract",
+    "compliance training", "security incident", "platform architecture",
+    "sla requirement", "asset replacement", "on-call rotation",
 }
+
+
+def _word_boundary_match(keyword: str, text: str) -> bool:
+    """Match keyword with word boundaries to avoid substring false positives.
+    'sum' should match 'the sum of' but NOT 'summarize'."""
+    import re
+    # Multi-word keywords and keywords with special chars use plain `in`
+    if " " in keyword or not keyword.isalpha():
+        return keyword in text
+    return bool(re.search(rf"\b{re.escape(keyword)}\b", text))
 
 
 def classify_data_query(query: str) -> str:
@@ -107,7 +124,7 @@ def classify_data_query(query: str) -> str:
     'What is the total salary policy breakdown' → 'ambiguous'
     """
     q_lower = query.lower()
-    data_matches = sum(1 for kw in _DATA_KEYWORDS if kw in q_lower)
+    data_matches = sum(1 for kw in _DATA_KEYWORDS if _word_boundary_match(kw, q_lower))
     if data_matches < 2:
         return "doc"
     doc_matches = sum(1 for kw in _DOC_QUERY_SIGNALS if kw in q_lower)

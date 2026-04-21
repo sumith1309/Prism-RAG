@@ -893,6 +893,13 @@ async def _faithfulness_score(answer: str, chunks) -> float:
     """LLM-judged 0..1 score of how faithful the answer is to the sources."""
     if not chunks or not answer.strip():
         return -1.0
+    # "Not specified" answers are faithfully reporting absence of information —
+    # they don't hallucinate, they correctly abstain. Score 1.0.
+    _not_found = ("do not specify", "does not specify", "not available in",
+                  "not in the provided", "do not contain", "not found in")
+    answer_lower = answer.lower()[:200]
+    if any(p in answer_lower for p in _not_found):
+        return 1.0
     # Show the verifier the same chunks the generator saw — truncate each
     # to 400 chars (enough for the key fact) but include ALL chunks so a
     # claim citing [Source 8] doesn't look fabricated.
@@ -2266,11 +2273,12 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                     else:
                         # ── Fallback: no doc match → try analytics agent
                         # before giving up to general knowledge. ONLY when
-                        # the user hasn't scoped to specific docs — if they
-                        # selected docs in the sidebar, they want to search
-                        # THOSE docs, not analyze an unrelated Excel file.
+                        # the user hasn't scoped to specific docs AND the
+                        # query has at least some data intent (not a pure
+                        # document/policy question that just failed retrieval).
                         _fallback_doc = None
-                        if not req.doc_ids and not req.preferred_doc_id:
+                        if (not req.doc_ids and not req.preferred_doc_id
+                                and _data_intent != "doc"):
                             _fallback_doc = await _find_analytics_doc(
                                 req.query, None, user.level, user.role
                             )

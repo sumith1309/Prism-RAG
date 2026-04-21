@@ -304,14 +304,31 @@ def _scan_sheet_for_employee(sheet_df: pd.DataFrame) -> dict:
     return {}
 
 
+_SCHEMA_SHEET_PATTERNS = re.compile(
+    r"^(schema[\s_]*notes?|schema|readme|notes?|documentation|doc|example[s_]*.*|"
+    r"example.*quer(y|ies)|instructions?|help|info|metadata|"
+    r"data[\s_]*dictionary|dictionary|glossary|column[\s_]*notes?|"
+    r"cover|sheet[\s_]*1?|summary)$",
+    re.IGNORECASE,
+)
+
+
+def _is_data_sheet(sheet_name: str) -> bool:
+    """Return False for schema/notes/documentation sheets.
+    These describe the data but aren't data themselves, and concatenating
+    them pollutes the column space of the real data sheet."""
+    return not _SCHEMA_SHEET_PATTERNS.match(str(sheet_name).strip())
+
+
 def load_dataframe(doc: store.Document) -> pd.DataFrame:
     """Load a tabular document into a pandas DataFrame.
 
     Applies auto-cleaning:
-      1. Per-sheet metadata extraction (Employee_Name from "Employee: Manoj [28]")
-      2. Fix messy headers (Unnamed: columns → promote real header row)
-      3. Strip metadata/summary rows (Statistics, Employee:, From..To..)
-      4. Convert time strings (hh:mm) to decimal hours for math
+      1. Skip schema/notes/README sheets (they describe data, aren't data)
+      2. Per-sheet metadata extraction (Employee_Name from "Employee: Manoj [28]")
+      3. Fix messy headers (Unnamed: columns → promote real header row)
+      4. Strip metadata/summary rows (Statistics, Employee:, From..To..)
+      5. Convert time strings (hh:mm) to decimal hours for math
     """
     path = _raw_path(doc)
     if not path.exists():
@@ -325,11 +342,18 @@ def load_dataframe(doc: store.Document) -> pd.DataFrame:
         df = pd.read_csv(path)
     elif ext in {".xlsx", ".xls"}:
         xls = pd.ExcelFile(path)
-        if len(xls.sheet_names) == 1:
-            df = pd.read_excel(path, sheet_name=0)
+        # Filter out schema/notes/documentation sheets
+        data_sheets = [s for s in xls.sheet_names if _is_data_sheet(s)]
+        # Safety: if filtering removes everything, fall back to all sheets
+        if not data_sheets:
+            data_sheets = xls.sheet_names
+
+        if len(data_sheets) == 1:
+            # Single data sheet — load directly, no _sheet column needed
+            df = pd.read_excel(path, sheet_name=data_sheets[0])
         else:
             frames = []
-            for name in xls.sheet_names:
+            for name in data_sheets:
                 sheet_df = pd.read_excel(path, sheet_name=name)
                 # Extract employee metadata BEFORE header promotion discards it
                 info = _scan_sheet_for_employee(sheet_df)
@@ -568,8 +592,8 @@ def _execute_pandas_code(code: str, df: pd.DataFrame) -> dict[str, Any]:
     # Serialize the result
     try:
         if isinstance(raw_result, pd.DataFrame):
-            # Cap at 50 rows for the frontend
-            truncated = raw_result.head(50)
+            # Cap at 50 rows + replace NaN with None (NaN isn't valid JSON)
+            truncated = raw_result.head(50).where(lambda x: pd.notna(x), None)
             result_data = {
                 "columns": list(truncated.columns),
                 "rows": truncated.to_dict(orient="records"),
@@ -578,11 +602,12 @@ def _execute_pandas_code(code: str, df: pd.DataFrame) -> dict[str, Any]:
             }
             result_type = "table"
         elif isinstance(raw_result, pd.Series):
+            clean_series = raw_result.head(50).where(lambda x: pd.notna(x), None)
             result_data = {
                 "columns": [raw_result.name or "value"],
                 "rows": [
                     {"index": str(k), raw_result.name or "value": v}
-                    for k, v in raw_result.head(50).items()
+                    for k, v in clean_series.items()
                 ],
                 "total_rows": len(raw_result),
                 "truncated": len(raw_result) > 50,
@@ -670,13 +695,52 @@ def _execute_pandas_code(code: str, df: pd.DataFrame) -> dict[str, Any]:
         if isinstance(obj, (pd.Timestamp,)):
             return obj.isoformat()
         if hasattr(obj, 'item'):  # numpy scalar
-            return obj.item()
+            val = obj.item()
+            if isinstance(val, float) and (val != val):  # numpy NaN
+                return None
+            return val
         if isinstance(obj, float) and (obj != obj):  # NaN
             return None
         return obj
 
-    result_json = json.loads(json.dumps(result_data, default=_jsonify))
-    chart_json = json.loads(json.dumps(chart, default=_jsonify)) if chart else None
+    # Proactively scrub NaN from the result BEFORE json.dumps. NaN serializes
+    # to the literal "NaN" which isn't valid JSON — this breaks both the
+    # frontend JSON.parse AND downstream json.dumps(allow_nan=False) in the
+    # persistence/audit path. Scrub recursively so nested dicts/lists are clean.
+    import math as _math
+    def _scrub_nan(o):
+        if isinstance(o, float) and _math.isnan(o):
+            return None
+        if hasattr(o, 'item'):  # numpy scalar
+            try:
+                v = o.item()
+                if isinstance(v, float) and _math.isnan(v):
+                    return None
+                return v
+            except Exception:
+                return None
+        if isinstance(o, dict):
+            return {k: _scrub_nan(v) for k, v in o.items()}
+        if isinstance(o, list):
+            return [_scrub_nan(x) for x in o]
+        if isinstance(o, tuple):
+            return tuple(_scrub_nan(x) for x in o)
+        if isinstance(o, (pd.Timestamp,)):
+            return o.isoformat()
+        return o
+
+    try:
+        scrubbed = _scrub_nan(result_data)
+        result_json = json.loads(json.dumps(scrubbed, default=_jsonify))
+    except (TypeError, ValueError) as e:
+        return {
+            "ok": False, "result": None, "result_type": "error", "chart": None,
+            "error": f"Failed to serialize result: {e}", "code": code,
+        }
+    try:
+        chart_json = json.loads(json.dumps(_scrub_nan(chart), default=_jsonify)) if chart else None
+    except (TypeError, ValueError):
+        chart_json = None
 
     return {
         "ok": True,
@@ -759,19 +823,29 @@ def _detect_foreign_keys(dfs: dict[str, pd.DataFrame]) -> list[dict]:
 def _multi_table_schema_summary(dfs: dict[str, pd.DataFrame]) -> str:
     """Generate a combined schema summary for multiple DataFrames with FK hints."""
     lines = []
-    lines.append(f"You have {len(dfs)} DataFrames loaded:")
+    lines.append(f"You have {len(dfs)} DataFrames loaded.")
+    lines.append("CRITICAL: Use ONLY the column names listed below — do NOT")
+    lines.append("invent names like 'incident_id' or 'manager_employee_id' if")
+    lines.append("they aren't listed. Copy names EXACTLY as shown (case, underscores).")
     lines.append("")
 
     for name, df in dfs.items():
-        lines.append(f"── df_{name} ({df.shape[0]} rows × {df.shape[1]} cols) ──")
-        # Show just column names + dtypes + sample value (compact)
-        for col in df.columns:
-            if str(col).startswith("_"):
-                continue
+        # Filter junk columns (from schema_notes leftovers, Unnamed, etc.)
+        clean_cols = [
+            c for c in df.columns
+            if not str(c).startswith("_")
+            and not str(c).startswith("Unnamed")
+            and not str(c).startswith("TechNova Inc.")
+        ]
+        lines.append(f"── df_{name} ({df.shape[0]} rows × {len(clean_cols)} cols) ──")
+        # Explicit EXACT-columns list at the top
+        lines.append(f"  EXACT COLUMN NAMES: {clean_cols}")
+        # Per-column detail with sample value
+        for col in clean_cols:
             dtype = str(df[col].dtype)
             sample = df[col].dropna().head(1).tolist()
             sample_str = str(sample[0])[:40] if sample else "(all null)"
-            lines.append(f"  {col} ({dtype}) — e.g. {sample_str}")
+            lines.append(f"    {col!r}  ({dtype})  e.g. {sample_str}")
         lines.append("")
 
     fks = _detect_foreign_keys(dfs)
@@ -791,23 +865,43 @@ AVAILABLE DATAFRAMES:
 
 RULES:
 1. Use the exact variable names shown (df_employees, df_departments, etc.).
-2. For joins, use pd.merge(left, right, on='<id>', how='inner'|'left').
-3. Chain joins for multi-hop queries: merge A→B, then merge with C.
-4. MERGE COLUMN COLLISIONS: if both tables have a column with the same name
-   (e.g. both have 'category'), pd.merge adds suffixes '_x' and '_y'.
-   Use `suffixes=('_tx','_vendor')` to give them meaningful names, OR
-   rename columns BEFORE merge: df_vendors.rename(columns={{'category':'vendor_category'}}).
-5. After joining, perform the aggregation/filter/sort the question requires.
-6. When returning IDs, ALSO include the human-readable name column (e.g. merge
-   with df_employees to get first_name/last_name, not just employee_id).
-7. Self-joins for "manager's manager": merge df_employees with itself twice,
-   using suffixes=('_emp','_mgr') then suffixes=('','_mgr2').
-8. For NOT conditions ("have NOT completed X"), use left merge + filter on
-   nulls, or use `~df_a['id'].isin(df_b['id'])`.
-9. Store the final answer in `result` (DataFrame, Series, scalar, or dict).
-10. For top-N, use .nlargest(N, 'col') or .sort_values('col', ascending=False).head(N).
-11. For scalar answers, include context (e.g. "Engineering dept — INR 45.2 crore total spend").
-12. Never access any variable that isn't explicitly listed above.
+2. Use ONLY the column names listed in "EXACT COLUMN NAMES". Do NOT invent
+   names. If a column you expect isn't there, pick the closest one that IS.
+3. For joins, use pd.merge(left, right, on='<id>', how='inner'|'left').
+4. MERGE SUFFIX PITFALL (CRITICAL — most common bug):
+   When both tables share a column name (e.g. both have 'category' or 'level'),
+   pd.merge adds default suffixes '_x' and '_y'. BEFORE you groupby/filter on
+   that column, either:
+   (a) RENAME before merge:
+       df_vendors2 = df_vendors.rename(columns={{'category': 'vendor_category'}})
+       merged = pd.merge(df_financial_transactions, df_vendors2, on='vendor_id')
+       merged.groupby('vendor_category')['amount'].sum()
+   (b) Use explicit suffixes and reference the suffixed name:
+       merged = pd.merge(ft, vendors, on='vendor_id', suffixes=('_tx','_vendor'))
+       merged.groupby('category_vendor')...  # note '_vendor' suffix
+5. SELF-JOIN PITFALL (for "manager's manager"):
+   # Step 1: customer → account manager
+   am = pd.merge(df_customers, df_employees,
+                 left_on='account_manager_employee_id',
+                 right_on='employee_id', suffixes=('','_am'))
+   # Step 2: account manager → their manager
+   mgr = pd.merge(am, df_employees,
+                  left_on='manager_employee_id',
+                  right_on='employee_id', suffixes=('','_mgr'))
+   # Now columns are: first_name (customer fields), first_name_mgr (manager)
+   # The AM's name is in 'first_name' after first merge; after second merge
+   # it gets renamed. Use suffixes consistently.
+6. For NOT conditions ("have NOT completed X"):
+   completed_ids = df_training[df_training['status'] == 'Completed']['employee_id']
+   not_completed = df_employees[~df_employees['employee_id'].isin(completed_ids)]
+7. When returning IDs, ALSO include the human-readable name column.
+8. Store the final answer in `result` (DataFrame, Series, scalar, or dict).
+9. For top-N, use .nlargest(N, 'col') or .sort_values('col', ascending=False).head(N).
+10. For scalar answers, include context (e.g. "Engineering dept — INR 45.2 crore").
+11. CEO lookup: filter df_employees by job_title containing 'CEO' or
+    'Chairman' or 'Managing Director' — do NOT assume employee_id == 1001.
+12. Never access a variable not in the list. Never call reset_index() before
+    checking what columns exist. Print df.columns if unsure.
 
 QUESTION: {query}
 
@@ -861,7 +955,9 @@ def _execute_multi_table_code(code: str, dfs: dict[str, pd.DataFrame]) -> dict[s
     # Serialize (same logic as single-table path)
     try:
         if isinstance(raw_result, pd.DataFrame):
-            truncated = raw_result.head(50)
+            # Replace NaN with None — NaN serializes to invalid JSON "NaN"
+            # which breaks browser JSON.parse downstream.
+            truncated = raw_result.head(50).where(lambda x: pd.notna(x), None)
             result_data = {
                 "columns": list(truncated.columns),
                 "rows": truncated.to_dict(orient="records"),
@@ -870,11 +966,12 @@ def _execute_multi_table_code(code: str, dfs: dict[str, pd.DataFrame]) -> dict[s
             }
             result_type = "table"
         elif isinstance(raw_result, pd.Series):
+            clean_series = raw_result.head(50).where(lambda x: pd.notna(x), None)
             result_data = {
                 "columns": [raw_result.name or "value"],
                 "rows": [
                     {"index": str(k), raw_result.name or "value": v}
-                    for k, v in raw_result.head(50).items()
+                    for k, v in clean_series.items()
                 ],
                 "total_rows": len(raw_result),
                 "truncated": len(raw_result) > 50,
@@ -899,13 +996,49 @@ def _execute_multi_table_code(code: str, dfs: dict[str, pd.DataFrame]) -> dict[s
         if isinstance(obj, (pd.Timestamp,)):
             return obj.isoformat()
         if hasattr(obj, 'item'):
-            return obj.item()
+            val = obj.item()
+            if isinstance(val, float) and (val != val):
+                return None
+            return val
         if isinstance(obj, float) and (obj != obj):
             return None
         return obj
 
-    result_json = json.loads(json.dumps(result_data, default=_jsonify))
-    chart_json = json.loads(json.dumps(chart, default=_jsonify)) if chart else None
+    # Proactively scrub NaN (recursive) — same approach as multi-table path.
+    import math as _math
+    def _scrub_nan(o):
+        if isinstance(o, float) and _math.isnan(o):
+            return None
+        if hasattr(o, 'item'):
+            try:
+                v = o.item()
+                if isinstance(v, float) and _math.isnan(v):
+                    return None
+                return v
+            except Exception:
+                return None
+        if isinstance(o, dict):
+            return {k: _scrub_nan(v) for k, v in o.items()}
+        if isinstance(o, list):
+            return [_scrub_nan(x) for x in o]
+        if isinstance(o, tuple):
+            return tuple(_scrub_nan(x) for x in o)
+        if isinstance(o, (pd.Timestamp,)):
+            return o.isoformat()
+        return o
+
+    try:
+        scrubbed = _scrub_nan(result_data)
+        result_json = json.loads(json.dumps(scrubbed, default=_jsonify))
+    except (TypeError, ValueError) as e:
+        return {
+            "ok": False, "result": None, "result_type": "error", "chart": None,
+            "error": f"Failed to serialize result: {e}", "code": code,
+        }
+    try:
+        chart_json = json.loads(json.dumps(_scrub_nan(chart), default=_jsonify)) if chart else None
+    except (TypeError, ValueError):
+        chart_json = None
 
     return {
         "ok": True, "result": result_json, "result_type": result_type,

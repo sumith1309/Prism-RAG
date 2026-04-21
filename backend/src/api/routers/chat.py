@@ -1820,6 +1820,14 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                                     "tables": _mt_result.get("tables", []),
                                     "doc_ids": _mt_result.get("doc_ids", []),
                                     "filenames": _mt_result.get("filenames", []),
+                                    # Singular aliases so the frontend
+                                    # DataCard (which was built for
+                                    # single-table analytics) can still
+                                    # render on reload.
+                                    "doc_id": (_mt_result.get("doc_ids") or [""])[0],
+                                    "filename": " + ".join(_mt_result.get("filenames") or [])[:200],
+                                    "ok": True,
+                                    "error": None,
                                 }
                             }),
                             refused=False, answer_mode="analytics",

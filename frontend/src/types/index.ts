@@ -321,6 +321,25 @@ export interface ThreadTurn {
   } | null;
   // Only populated when answer_mode === "social".
   welcome?: WelcomePayload | null;
+  // Only populated when answer_mode === "analytics". Full pandas result
+  // (table + chart + code + source filenames) for re-render on reload.
+  analytics?: {
+    ok: boolean;
+    result: any;
+    result_type: "table" | "scalar" | "error";
+    chart: {
+      type: "bar" | "line" | "pie";
+      title: string;
+      xAxis?: string[];
+      series: { name: string; data: number[] }[];
+    } | null;
+    error: string | null;
+    code: string;
+    doc_id?: string;
+    filename: string;
+    tables?: string[];
+    filenames?: string[];
+  } | null;
 }
 
 export interface ThreadDetail extends ThreadSummary {

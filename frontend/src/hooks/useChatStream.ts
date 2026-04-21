@@ -35,8 +35,12 @@ function turnToMessage(turn: ThreadTurn): ChatMessage {
   if (turn.answer_mode === "social" && turn.welcome) {
     msg.welcome = turn.welcome;
   }
-  // Analytics turns store the result payload in sources_json.analytics
-  // (parsed server-side — but we also handle the raw case here).
+  // Analytics turns: rehydrate the full pandas result (table + chart +
+  // code) from the persisted payload so the DataCard re-renders on
+  // reload instead of collapsing to the summary text.
+  if (turn.answer_mode === "analytics" && turn.analytics) {
+    msg.analytics = turn.analytics as ChatMessage["analytics"];
+  }
   return msg;
 }
 

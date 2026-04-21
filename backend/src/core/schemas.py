@@ -108,6 +108,11 @@ class ThreadTurn(BaseModel):
     # Social: populated only when answer_mode == "social". Carries the
     # welcome payload so thread-replay renders the full WelcomeCard.
     welcome: Optional[dict] = None
+    # Analytics: populated only when answer_mode == "analytics". Carries
+    # the full pandas result (table rows/columns, chart spec, generated
+    # code, source filenames) so thread-replay re-renders the data grid
+    # and chart instead of just a "N rows" summary string.
+    analytics: Optional[dict] = None
 
 
 class ThreadDetail(BaseModel):

@@ -43,6 +43,7 @@ def get_my_thread(thread_id: str, user: CurrentUser = Depends(get_current_user))
         disambiguation: dict | None = None
         comparison: dict | None = None
         welcome: dict | None = None
+        analytics: dict | None = None
         raw = r.sources_json or ""
         if raw:
             try:
@@ -51,6 +52,9 @@ def get_my_thread(thread_id: str, user: CurrentUser = Depends(get_current_user))
                 # Disambiguate turns store {"candidates": [...]} (a dict).
                 # Comparison turns store {"comparison": [...]} (a dict).
                 # Social turns store {"welcome": {...}} (a dict).
+                # Analytics turns store {"analytics": {result, chart, code,
+                #   tables, filenames}} so the table/chart re-renders on
+                #   reload instead of showing a bare "N rows" summary.
                 if isinstance(parsed, list):
                     sources = parsed
                 elif isinstance(parsed, dict):
@@ -62,9 +66,8 @@ def get_my_thread(thread_id: str, user: CurrentUser = Depends(get_current_user))
                         }
                     elif "welcome" in parsed:
                         welcome = parsed["welcome"]
-                    # Analytics turns: store the result payload for replay
                     elif "analytics" in parsed:
-                        pass  # content text is sufficient for replay
+                        analytics = parsed["analytics"]
             except Exception:
                 pass
         turns_out.append(
@@ -80,6 +83,7 @@ def get_my_thread(thread_id: str, user: CurrentUser = Depends(get_current_user))
                 disambiguation=disambiguation,
                 comparison=comparison,
                 welcome=welcome,
+                analytics=analytics,
             )
         )
     return ThreadDetail(

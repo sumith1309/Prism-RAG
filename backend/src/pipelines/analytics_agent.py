@@ -269,18 +269,58 @@ def _strip_metadata_rows(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+_EMP_PATTERN = re.compile(
+    r"Employee:\s*([^,\[]+?)(?:\s*,+\s*(?:Male|Female|Other|[MF]))?\s*\[(\d+)\]"
+    r"(?:.*?Position:\s*([^\s]+(?:\s+[^\s]+)*?))?"
+    r"(?:\s+Department:\s*([^\n\[]+?)(?:\[|\n|$))?",
+    re.IGNORECASE,
+)
+
+
+def _scan_sheet_for_employee(sheet_df: pd.DataFrame) -> dict:
+    """Scan the first few rows of a sheet for an 'Employee: Name, Male [ID]'
+    metadata row. Returns {"Employee_Name", "Position", "Department"} or {}.
+
+    Must run BEFORE _fix_messy_headers drops metadata rows.
+    """
+    if sheet_df.empty:
+        return {}
+    for i in range(min(5, len(sheet_df))):
+        for col in sheet_df.columns[:3]:  # metadata is in left columns
+            val = sheet_df.iloc[i].get(col)
+            if pd.isna(val):
+                continue
+            s = str(val).strip()
+            if "employee:" not in s.lower():
+                continue
+            m = _EMP_PATTERN.search(s)
+            if not m:
+                continue
+            return {
+                "Employee_Name": m.group(1).strip() if m.group(1) else None,
+                "Position": m.group(3).strip() if m.group(3) else None,
+                "Department": m.group(4).strip() if m.group(4) else None,
+            }
+    return {}
+
+
 def load_dataframe(doc: store.Document) -> pd.DataFrame:
     """Load a tabular document into a pandas DataFrame.
 
     Applies auto-cleaning:
-      1. Fix messy headers (Unnamed: columns → promote real header row)
-      2. Strip metadata/summary rows (Statistics, Employee:, From..To..)
-      3. Convert time strings (hh:mm) to decimal hours for math
+      1. Per-sheet metadata extraction (Employee_Name from "Employee: Manoj [28]")
+      2. Fix messy headers (Unnamed: columns → promote real header row)
+      3. Strip metadata/summary rows (Statistics, Employee:, From..To..)
+      4. Convert time strings (hh:mm) to decimal hours for math
     """
     path = _raw_path(doc)
     if not path.exists():
         raise FileNotFoundError(f"Raw file not found: {path}")
     ext = path.suffix.lower()
+
+    # Per-sheet metadata map: sheet_name → {Employee_Name, Position, Department}
+    sheet_metadata: dict = {}
+
     if ext == ".csv":
         df = pd.read_csv(path)
     elif ext in {".xlsx", ".xls"}:
@@ -291,6 +331,10 @@ def load_dataframe(doc: store.Document) -> pd.DataFrame:
             frames = []
             for name in xls.sheet_names:
                 sheet_df = pd.read_excel(path, sheet_name=name)
+                # Extract employee metadata BEFORE header promotion discards it
+                info = _scan_sheet_for_employee(sheet_df)
+                if info:
+                    sheet_metadata[str(name)] = info
                 sheet_df["_sheet"] = name
                 frames.append(sheet_df)
             df = pd.concat(frames, ignore_index=True)
@@ -298,6 +342,18 @@ def load_dataframe(doc: store.Document) -> pd.DataFrame:
         raise ValueError(f"Not a tabular file: {ext}")
 
     df = _fix_messy_headers(df)
+
+    # Inject Employee_Name / Position / Department from the sheet-level map.
+    # _fix_messy_headers converts _sheet → Employee_ID, so use Employee_ID to
+    # look up each row's sheet metadata.
+    if sheet_metadata and "Employee_ID" in df.columns:
+        def _lookup(eid, field):
+            info = sheet_metadata.get(str(eid)) or {}
+            return info.get(field)
+        df["Employee_Name"] = df["Employee_ID"].apply(lambda e: _lookup(e, "Employee_Name"))
+        df["Position"] = df["Employee_ID"].apply(lambda e: _lookup(e, "Position"))
+        df["Department"] = df["Employee_ID"].apply(lambda e: _lookup(e, "Department"))
+
     df = _strip_metadata_rows(df)
     df = _clean_time_columns(df)
     return df
@@ -346,9 +402,11 @@ def _schema_summary(df: pd.DataFrame, max_rows: int = 5) -> str:
         annotation = ""
         if col.endswith("_hours"):
             annotation = " [USE THIS for calculations — decimal hours from time strings]"
-        elif "employee" in col.lower() or "id" in col.lower() or col == "_sheet":
-            annotation = f" [ENTITY ID — use for groupby to compare across employees/entities ({nunique} distinct)]"
-        elif dtype in ("object", "str", "string", "string[python]", "string[pyarrow]") and nunique < 100 and col not in ("Date", "Weekday") and nunique > 1 and nunique < len(df) * 0.1:
+        elif col == "Employee_Name":
+            annotation = f" [EMPLOYEE NAME — prefer this over Employee_ID when returning results so users see 'Manoj' not '28' ({nunique} distinct)]"
+        elif col in ("Employee_ID", "_sheet") or ("employee" in col.lower() and "id" in col.lower()):
+            annotation = f" [ENTITY ID — use for groupby to compare across employees ({nunique} distinct). Join back to Employee_Name for display.]"
+        elif dtype in ("object", "str", "string", "string[python]", "string[pyarrow]") and nunique < 100 and col not in ("Date", "Weekday", "Employee_Name") and nunique > 1 and nunique < len(df) * 0.1:
             annotation = f" [categorical — {nunique} groups, use for groupby]"
         lines.append(f"  - {col} ({dtype}, {nunique} unique, {null_pct}% null) — e.g. {sample_str}{annotation}")
 
@@ -628,6 +686,397 @@ def _execute_pandas_code(code: str, df: pd.DataFrame) -> dict[str, Any]:
         "error": None,
         "code": code,
     }
+
+
+# ── Multi-table support (cross-file JOINs) ────────────────────────────────
+
+def _table_name_from_filename(filename: str) -> str:
+    """Normalize filename to a Python variable name.
+
+    02_Employees.xlsx → 'employees'
+    Salary_Records.xlsx → 'salary_records'
+    Time Card 20260317.xlsx → 'time_card_20260317'
+    """
+    stem = Path(filename).stem
+    # Strip leading number + underscore (common "NN_Name" prefix)
+    stem = re.sub(r"^\d+[_\-\.]", "", stem)
+    # Replace non-alphanumeric with underscore, lowercase
+    name = re.sub(r"[^a-zA-Z0-9]+", "_", stem).strip("_").lower()
+    # Ensure it starts with a letter (prepend 't_' if starts with digit)
+    if name and name[0].isdigit():
+        name = "t_" + name
+    return name or "table"
+
+
+def _detect_foreign_keys(dfs: dict[str, pd.DataFrame]) -> list[dict]:
+    """Detect likely FK relationships across loaded DataFrames.
+
+    Heuristic: if table A has column `<name>_id` (not its own primary key) and
+    table B has a column `<name>_id` that is its primary key (nearly all unique),
+    then A.<name>_id → B.<name>_id is a likely FK.
+
+    Returns list of {"from": "table.col", "to": "table.col", "reason": str}.
+    """
+    # Identify each table's likely primary key (first column ending in _id with
+    # near-unique values)
+    primary_keys: dict[str, str] = {}
+    for name, df in dfs.items():
+        if df.empty:
+            continue
+        for col in df.columns:
+            col_str = str(col)
+            if col_str.endswith("_id") or col_str.endswith("_ID"):
+                vals = df[col].dropna()
+                if len(vals) > 0 and vals.nunique() / len(vals) > 0.95:
+                    primary_keys[name] = col_str
+                    break
+
+    # For each column ending in _id in every table, try to match it to another
+    # table's primary key by column name
+    fks = []
+    for name, df in dfs.items():
+        own_pk = primary_keys.get(name, "")
+        for col in df.columns:
+            col_str = str(col)
+            if not (col_str.endswith("_id") or col_str.endswith("_ID")):
+                continue
+            if col_str == own_pk:
+                continue
+            # Look for another table whose PK matches this column
+            for other_name, other_pk in primary_keys.items():
+                if other_name == name:
+                    continue
+                if col_str == other_pk:
+                    fks.append({
+                        "from": f"df_{name}.{col_str}",
+                        "to": f"df_{other_name}.{other_pk}",
+                        "reason": "column name match",
+                    })
+                    break
+    return fks
+
+
+def _multi_table_schema_summary(dfs: dict[str, pd.DataFrame]) -> str:
+    """Generate a combined schema summary for multiple DataFrames with FK hints."""
+    lines = []
+    lines.append(f"You have {len(dfs)} DataFrames loaded:")
+    lines.append("")
+
+    for name, df in dfs.items():
+        lines.append(f"── df_{name} ({df.shape[0]} rows × {df.shape[1]} cols) ──")
+        # Show just column names + dtypes + sample value (compact)
+        for col in df.columns:
+            if str(col).startswith("_"):
+                continue
+            dtype = str(df[col].dtype)
+            sample = df[col].dropna().head(1).tolist()
+            sample_str = str(sample[0])[:40] if sample else "(all null)"
+            lines.append(f"  {col} ({dtype}) — e.g. {sample_str}")
+        lines.append("")
+
+    fks = _detect_foreign_keys(dfs)
+    if fks:
+        lines.append("Likely JOIN keys (foreign-key relationships):")
+        for fk in fks:
+            lines.append(f"  {fk['from']} → {fk['to']}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+MULTI_TABLE_ANALYTICS_PROMPT = """You are a senior data analyst with access to MULTIPLE pandas DataFrames. Answer the user's question by joining them with pd.merge() as needed.
+
+AVAILABLE DATAFRAMES:
+{schema}
+
+RULES:
+1. Use the exact variable names shown (df_employees, df_departments, etc.).
+2. For joins, use pd.merge(left, right, on='<id>', how='inner'|'left').
+3. Chain joins for multi-hop queries: merge A→B, then merge with C.
+4. MERGE COLUMN COLLISIONS: if both tables have a column with the same name
+   (e.g. both have 'category'), pd.merge adds suffixes '_x' and '_y'.
+   Use `suffixes=('_tx','_vendor')` to give them meaningful names, OR
+   rename columns BEFORE merge: df_vendors.rename(columns={{'category':'vendor_category'}}).
+5. After joining, perform the aggregation/filter/sort the question requires.
+6. When returning IDs, ALSO include the human-readable name column (e.g. merge
+   with df_employees to get first_name/last_name, not just employee_id).
+7. Self-joins for "manager's manager": merge df_employees with itself twice,
+   using suffixes=('_emp','_mgr') then suffixes=('','_mgr2').
+8. For NOT conditions ("have NOT completed X"), use left merge + filter on
+   nulls, or use `~df_a['id'].isin(df_b['id'])`.
+9. Store the final answer in `result` (DataFrame, Series, scalar, or dict).
+10. For top-N, use .nlargest(N, 'col') or .sort_values('col', ascending=False).head(N).
+11. For scalar answers, include context (e.g. "Engineering dept — INR 45.2 crore total spend").
+12. Never access any variable that isn't explicitly listed above.
+
+QUESTION: {query}
+
+Write ONLY the Python code, no explanation, no markdown fences:"""
+
+
+def _execute_multi_table_code(code: str, dfs: dict[str, pd.DataFrame]) -> dict[str, Any]:
+    """Execute LLM-generated pandas code with multiple named DataFrames.
+
+    Extends _execute_pandas_code: sandbox exposes df_<name> for every loaded
+    table plus df as the primary (largest) one for backward compat.
+    """
+    safe, reason = _is_safe_code(code)
+    if not safe:
+        return {
+            "ok": False, "result": None, "result_type": "error", "chart": None,
+            "error": f"Code safety check failed: {reason}", "code": code,
+        }
+
+    import numpy as np
+
+    sandbox = {
+        "__builtins__": _SAFE_BUILTINS,
+        "pd": pd,
+        "np": np,
+    }
+    # Expose each DataFrame as df_<name>
+    for name, df in dfs.items():
+        sandbox[f"df_{name}"] = df.copy()
+    # Also expose `df` as the largest DataFrame for single-table-style code
+    if dfs:
+        primary = max(dfs.items(), key=lambda kv: len(kv[1]))[1]
+        sandbox["df"] = primary.copy()
+
+    try:
+        exec(code, sandbox)
+    except Exception as e:
+        return {
+            "ok": False, "result": None, "result_type": "error", "chart": None,
+            "error": f"{type(e).__name__}: {e}", "code": code,
+        }
+
+    raw_result = sandbox.get("result")
+    chart = sandbox.get("chart")
+    if raw_result is None:
+        return {
+            "ok": False, "result": None, "result_type": "error", "chart": None,
+            "error": "Code did not produce a `result` variable.", "code": code,
+        }
+
+    # Serialize (same logic as single-table path)
+    try:
+        if isinstance(raw_result, pd.DataFrame):
+            truncated = raw_result.head(50)
+            result_data = {
+                "columns": list(truncated.columns),
+                "rows": truncated.to_dict(orient="records"),
+                "total_rows": len(raw_result),
+                "truncated": len(raw_result) > 50,
+            }
+            result_type = "table"
+        elif isinstance(raw_result, pd.Series):
+            result_data = {
+                "columns": [raw_result.name or "value"],
+                "rows": [
+                    {"index": str(k), raw_result.name or "value": v}
+                    for k, v in raw_result.head(50).items()
+                ],
+                "total_rows": len(raw_result),
+                "truncated": len(raw_result) > 50,
+            }
+            result_type = "table"
+        elif isinstance(raw_result, (int, float, str, bool)):
+            result_data = raw_result
+            result_type = "scalar"
+        elif isinstance(raw_result, dict):
+            result_data = raw_result
+            result_type = "scalar"
+        else:
+            result_data = str(raw_result)
+            result_type = "scalar"
+    except Exception as e:
+        return {
+            "ok": False, "result": None, "result_type": "error", "chart": None,
+            "error": f"Failed to serialize result: {e}", "code": code,
+        }
+
+    def _jsonify(obj):
+        if isinstance(obj, (pd.Timestamp,)):
+            return obj.isoformat()
+        if hasattr(obj, 'item'):
+            return obj.item()
+        if isinstance(obj, float) and (obj != obj):
+            return None
+        return obj
+
+    result_json = json.loads(json.dumps(result_data, default=_jsonify))
+    chart_json = json.loads(json.dumps(chart, default=_jsonify)) if chart else None
+
+    return {
+        "ok": True, "result": result_json, "result_type": result_type,
+        "chart": chart_json, "error": None, "code": code,
+    }
+
+
+async def find_target_docs(
+    query: str,
+    doc_ids: list[str] | None,
+    user_level: int,
+    caller_role: str | None = None,
+    max_tables: int = 10,
+) -> list[store.Document]:
+    """Find multiple tabular docs for a cross-table query.
+
+    Returns docs ordered by relevance. RBAC-filtered to user_level.
+    """
+    tabular = list_tabular_docs(max_doc_level=user_level)
+    if doc_ids:
+        scoped = [d for d in tabular if d.doc_id in doc_ids]
+        if scoped:
+            tabular = scoped
+    if not tabular:
+        return []
+
+    # Rank: tables whose normalized name appears in the query go first
+    q_lower = query.lower()
+    def _mentions(doc: store.Document) -> int:
+        tname = _table_name_from_filename(doc.filename)
+        parts = tname.split("_")
+        return sum(1 for p in parts if len(p) >= 3 and p in q_lower)
+
+    tabular.sort(key=lambda d: (-_mentions(d), d.filename))
+    return tabular[:max_tables]
+
+
+def is_multi_table_query(query: str) -> bool:
+    """Heuristic: detect when a query needs cross-table JOINs.
+
+    Signals:
+    - Mentions >1 domain noun (employees, customers, departments, vendors,...)
+    - Uses relational phrasing ("per department", "by vendor", "whose manager",
+      "for each customer")
+    - Multiple "whose"/"that have"/"with" clauses
+    """
+    q = query.lower()
+    _DOMAIN_NOUNS = {
+        "employee", "employees", "department", "departments", "salary", "salaries",
+        "customer", "customers", "vendor", "vendors", "incident", "incidents",
+        "product", "products", "service", "services", "training", "asset",
+        "assets", "license", "licenses", "transaction", "transactions",
+        "manager", "managers", "account manager",
+    }
+    hits = sum(1 for noun in _DOMAIN_NOUNS if noun in q)
+    if hits >= 2:
+        return True
+
+    _RELATIONAL_PATTERNS = [
+        "per department", "per employee", "per vendor", "per customer",
+        "by department", "by vendor", "by customer",
+        "whose ", "who have", "that have", "who has", "that own", "who own",
+        "linked to", "managed by", "owned by", "assigned to",
+        "for each ", "with unresolved", "with status",
+    ]
+    if sum(1 for p in _RELATIONAL_PATTERNS if p in q) >= 1 and hits >= 1:
+        return True
+    return False
+
+
+async def run_multi_table_query(
+    query: str,
+    docs: list[store.Document],
+    user_level: int,
+) -> dict[str, Any]:
+    """Run a cross-table analytics query with pandas joins.
+
+    Loads every doc in `docs` as df_<table_name>, exposes all to the LLM,
+    lets it generate pandas merge() code, executes in sandbox.
+    """
+    # RBAC check on every doc
+    accessible = [d for d in docs if d.doc_level <= user_level]
+    if not accessible:
+        return {
+            "ok": False, "result": None, "result_type": "error", "chart": None,
+            "error": "Access denied — no accessible tabular documents for your clearance level.",
+            "code": "", "tables": [], "schema": "",
+        }
+
+    # Load every accessible doc
+    dfs: dict[str, pd.DataFrame] = {}
+    load_errors = []
+    for doc in accessible:
+        try:
+            tname = _table_name_from_filename(doc.filename)
+            # Uniquify if collision
+            if tname in dfs:
+                tname = f"{tname}_{doc.doc_id[:6]}"
+            dfs[tname] = load_dataframe(doc)
+        except Exception as e:
+            load_errors.append(f"{doc.filename}: {e}")
+
+    if not dfs:
+        return {
+            "ok": False, "result": None, "result_type": "error", "chart": None,
+            "error": f"Failed to load any tabular data. Errors: {'; '.join(load_errors)}",
+            "code": "", "tables": [], "schema": "",
+        }
+
+    schema = _multi_table_schema_summary(dfs)
+    prompt = MULTI_TABLE_ANALYTICS_PROMPT.format(schema=schema, query=query)
+
+    try:
+        code = await _complete_chat(
+            [{"role": "user", "content": prompt}],
+            max_tokens=800, temperature=0.0,
+        )
+    except Exception as e:
+        return {
+            "ok": False, "result": None, "result_type": "error", "chart": None,
+            "error": f"LLM code generation failed: {e}",
+            "code": "", "tables": list(dfs.keys()), "schema": schema,
+        }
+
+    code = (code or "").strip()
+    if code.startswith("```"):
+        lines = code.split("\n")
+        lines = [l for l in lines if not l.strip().startswith("```")]
+        code = "\n".join(lines).strip()
+
+    if not code:
+        return {
+            "ok": False, "result": None, "result_type": "error", "chart": None,
+            "error": "LLM returned empty code.",
+            "code": "", "tables": list(dfs.keys()), "schema": schema,
+        }
+
+    result = _execute_multi_table_code(code, dfs)
+
+    # Corrective retry on runtime error
+    if not result["ok"] and result["error"] and "safety check" not in result["error"]:
+        retry_prompt = (
+            f"Your previous code failed:\n{result['error']}\n\n"
+            f"Original code:\n{code}\n\n"
+            f"Fix it. Available DataFrames: {', '.join(f'df_{n}' for n in dfs.keys())}. "
+            f"Store the answer in `result`.\n\n"
+            f"{schema}\n\nQUESTION: {query}\n\n"
+            f"Write ONLY the corrected Python code:"
+        )
+        try:
+            retry_code = await _complete_chat(
+                [{"role": "user", "content": retry_prompt}],
+                max_tokens=800, temperature=0.0,
+            )
+            retry_code = (retry_code or "").strip()
+            if retry_code.startswith("```"):
+                lines = retry_code.split("\n")
+                lines = [l for l in lines if not l.strip().startswith("```")]
+                retry_code = "\n".join(lines).strip()
+            if retry_code:
+                result = _execute_multi_table_code(retry_code, dfs)
+                if result["ok"]:
+                    result["code"] = f"# Retry succeeded\n{retry_code}"
+        except Exception:
+            pass
+
+    result["tables"] = list(dfs.keys())
+    result["schema"] = schema
+    result["doc_ids"] = [d.doc_id for d in accessible]
+    result["filenames"] = [d.filename for d in accessible]
+    return result
 
 
 # ── Main agent entry point ────────────────────────────────────────────────

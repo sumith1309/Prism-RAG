@@ -767,13 +767,34 @@ def _compute_confidence(
     faithfulness: float,
 ) -> int | None:
     """Composite 0..100 confidence score exposed to the user as a chip.
-    Two signals:
-      - top_rerank: how well the best chunk matches the query (retrieval)
-      - faithfulness: how grounded the answer is in the sources (judge)
+    Returns the overall (min of retrieval and reasoning) as an int for
+    frontend compatibility. Use _compute_confidence_breakdown() for the
+    split factual/interpretive scores.
+    """
+    breakdown = _compute_confidence_breakdown(answer_mode, chunks, faithfulness)
+    return breakdown["overall"] if breakdown else None
 
-    Grounded: weighted blend (50/50) when both are present, else the
-    single signal that is. Clamped to [5, 100] — anything below 5 reads
-    as a bug, not a score.
+
+def _compute_confidence_breakdown(
+    answer_mode: str,
+    chunks,
+    faithfulness: float,
+):
+    """Split confidence into factual vs interpretive components.
+
+    Returns a dict with three fields (or None for non-grounded):
+      - retrieval: 0..100 — FACTUAL confidence: "did we find the right source?"
+        Based on top chunk's rerank score (or RRF when rerank unavailable).
+      - reasoning: 0..100 — INTERPRETIVE confidence: "did we reason correctly
+        about what the sources say?" Based on faithfulness verifier.
+      - overall: 0..100 — min(retrieval, reasoning). Weakest link drives
+        user-facing trust. Strong retrieval + weak reasoning is still risky.
+
+    Why split: a question like "how many missing clock-outs?" can have
+    high retrieval confidence (the data IS there) but uncertain reasoning
+    (WHY they're missing). Separating these stops the single blended
+    score from over- or under-stating trust.
+
     Non-grounded: returns None (no confidence chip shown).
     """
     if answer_mode != "grounded" or not chunks:
@@ -781,23 +802,29 @@ def _compute_confidence(
     top = chunks[0].rerank_score if chunks and chunks[0].rerank_score is not None else None
     if top is None:
         top = chunks[0].rrf_score or 0.0
-    # Normalise rerank_score (cross-encoder, can go negative on bad matches
-    # for bge-reranker-base — but STRONG hits are ~0.3..0.9). We clamp
-    # to [0, 1] for the chip. RRF scores tend to be ~0.01..0.05, so we
-    # scale those separately when used as the only signal.
-    if top > 1.0:  # unlikely, but keep it safe
+    if top > 1.0:
         top = 1.0
     if top < 0.0:
         top = 0.0
-    # If we're using RRF (no rerank), scale to [0,1] by assuming 0.05 ≈ great.
     if chunks[0].rerank_score is None:
         top = min(1.0, top / 0.05)
 
+    retrieval_score = max(5, min(100, int(round(top * 100))))
     if faithfulness >= 0:
-        blended = top * 0.5 + faithfulness * 0.5
+        reasoning_score = max(5, min(100, int(round(faithfulness * 100))))
     else:
-        blended = top  # retrieval-only
-    return max(5, min(100, int(round(blended * 100))))
+        reasoning_score = None
+
+    if reasoning_score is not None:
+        overall = min(retrieval_score, reasoning_score)
+    else:
+        overall = retrieval_score
+
+    return {
+        "retrieval": retrieval_score,
+        "reasoning": reasoning_score,
+        "overall": overall,
+    }
 
 
 _CITATION_PATTERN = re.compile(r"\[Source\s+(\d+)\]", re.IGNORECASE)
@@ -1677,11 +1704,141 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
         from src.pipelines.analytics_agent import (
             classify_data_query as _classify_data,
             find_target_doc as _find_analytics_doc,
+            find_target_docs as _find_analytics_docs,
+            is_multi_table_query as _is_multi_table,
             looks_like_data_query as _is_data_query,
             run_analytics_query as _run_analytics,
+            run_multi_table_query as _run_multi_analytics,
         )
 
         _data_intent = _classify_data(req.query)
+
+        # ── Multi-table analytics (takes priority over normal intent) ─────
+        # When the query mentions ≥2 domain entities (customers + training,
+        # vendors + departments, etc.) and ≥2 tabular docs are visible to
+        # the user, fire the multi-DataFrame analytics agent. This runs
+        # BEFORE the doc/data/ambiguous split because relational queries
+        # like "Which Tier-1 customers ... whose account managers haven't
+        # completed DPDP training?" have no aggregation keywords but clearly
+        # need a cross-file JOIN, not a RAG document search.
+        if _is_multi_table(req.query):
+            _multi_docs = await _find_analytics_docs(
+                req.query, req.doc_ids or None, user.level, user.role
+            )
+            if len(_multi_docs) >= 2:
+                t_analytics = time.perf_counter()
+                _mt_result = await _run_multi_analytics(
+                    req.query, _multi_docs, user.level
+                )
+                analytics_ms = int((time.perf_counter() - t_analytics) * 1000)
+                # Commit to multi-table: if it ran (even with an error),
+                # return that result. Don't silently fall through to the
+                # timecard — better to show the user the actual error.
+                if not _mt_result["ok"]:
+                    yield {
+                        "event": "analytics",
+                        "data": json.dumps({
+                            "ok": False,
+                            "result": None,
+                            "result_type": "error",
+                            "chart": None,
+                            "error": _mt_result.get("error") or "Multi-table query failed",
+                            "code": _mt_result.get("code", ""),
+                            "doc_id": "",
+                            "filename": " + ".join(_mt_result.get("filenames") or [])[:200],
+                            "tables_joined": _mt_result.get("tables", []),
+                        }),
+                    }
+                    full_answer = (
+                        f"Multi-table analytics failed: {_mt_result.get('error', 'unknown error')}. "
+                        f"Tried to join: {', '.join(_mt_result.get('tables', []))}."
+                    )
+                    answer_mode = "analytics"
+                    try:
+                        models.append_turn(thread_id=thread_id, role="user", content=req.query)
+                        models.append_turn(
+                            thread_id=thread_id, role="assistant",
+                            content=full_answer, sources_json="",
+                            refused=False, answer_mode="analytics",
+                        )
+                        models.touch_thread(thread_id)
+                    except Exception:
+                        pass
+                    yield {
+                        "event": "done",
+                        "data": json.dumps({
+                            "ok": False, "answer_mode": "analytics",
+                            "thread_id": thread_id, "cached": False,
+                            "latency_ms": {"retrieve": 0, "rerank": 0, "generate": analytics_ms,
+                                           "total": int((time.perf_counter() - t_total) * 1000)},
+                            "tokens": {"prompt": 0, "completion": 0},
+                            "corrective_retries": 0, "faithfulness": -1.0,
+                        }),
+                    }
+                    return
+                if _mt_result["ok"]:
+                    yield {
+                        "event": "analytics",
+                        "data": json.dumps({
+                            "ok": True,
+                            "result": _mt_result["result"],
+                            "result_type": _mt_result["result_type"],
+                            "chart": _mt_result["chart"],
+                            "error": None,
+                            "code": _mt_result["code"],
+                            "doc_id": (_mt_result.get("doc_ids") or [""])[0],
+                            "filename": " + ".join(_mt_result.get("filenames") or [])[:200],
+                            "tables_joined": _mt_result.get("tables", []),
+                        }),
+                    }
+                    if _mt_result["result_type"] == "table":
+                        r = _mt_result["result"]
+                        full_answer = (
+                            f"Multi-table analytics across {len(_mt_result.get('tables',[]))} tables: "
+                            f"{r.get('total_rows', 0)} rows"
+                            + (" (showing first 50)" if r.get("truncated") else "")
+                            + "."
+                        )
+                    else:
+                        full_answer = (
+                            f"Multi-table analytics result: {_mt_result['result']}"
+                        )
+                    answer_mode = "analytics"
+                    try:
+                        models.append_turn(thread_id=thread_id, role="user", content=req.query)
+                        models.append_turn(
+                            thread_id=thread_id, role="assistant",
+                            content=full_answer,
+                            sources_json=json.dumps({
+                                "analytics": {
+                                    "result": _mt_result["result"],
+                                    "result_type": _mt_result["result_type"],
+                                    "chart": _mt_result["chart"],
+                                    "code": _mt_result["code"],
+                                    "tables": _mt_result.get("tables", []),
+                                    "doc_ids": _mt_result.get("doc_ids", []),
+                                    "filenames": _mt_result.get("filenames", []),
+                                }
+                            }),
+                            refused=False, answer_mode="analytics",
+                        )
+                        models.touch_thread(thread_id)
+                    except Exception:
+                        pass
+                    yield {
+                        "event": "done",
+                        "data": json.dumps({
+                            "ok": True, "answer_mode": "analytics",
+                            "thread_id": thread_id, "cached": False,
+                            "latency_ms": {
+                                "retrieve": 0, "rerank": 0, "generate": analytics_ms,
+                                "total": int((time.perf_counter() - t_total) * 1000),
+                            },
+                            "tokens": {"prompt": 0, "completion": 0},
+                            "corrective_retries": 0, "faithfulness": -1.0,
+                        }),
+                    }
+                    return
 
         # Ambiguous: data and doc signals are close — ask the user
         if _data_intent == "ambiguous":
@@ -1722,15 +1879,49 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                 return
 
         if _data_intent == "data":
-            target_doc = await _find_analytics_doc(
-                req.query, req.doc_ids or None, user.level, user.role
-            )
-            if target_doc is not None:
-                t_analytics = time.perf_counter()
-                analytics_result = await _run_analytics(
-                    req.query, target_doc, user.level
+            # ── Multi-table path (cross-file JOIN queries) ──────────────
+            # If the query mentions multiple domain entities (employees +
+            # departments, customers + training, etc.), load all visible
+            # tabular docs and let the LLM write pandas merge() code.
+            analytics_result = None
+            if _is_multi_table(req.query):
+                multi_docs = await _find_analytics_docs(
+                    req.query, req.doc_ids or None, user.level, user.role
                 )
-                analytics_ms = int((time.perf_counter() - t_analytics) * 1000)
+                if len(multi_docs) >= 2:
+                    t_analytics = time.perf_counter()
+                    mt_result = await _run_multi_analytics(
+                        req.query, multi_docs, user.level
+                    )
+                    analytics_ms = int((time.perf_counter() - t_analytics) * 1000)
+                    if mt_result["ok"]:
+                        analytics_result = {
+                            "ok": True,
+                            "result": mt_result["result"],
+                            "result_type": mt_result["result_type"],
+                            "chart": mt_result["chart"],
+                            "error": None,
+                            "code": mt_result["code"],
+                            # Compose a synthetic doc_id/filename for legacy
+                            # event schema — use the first joined table
+                            "doc_id": (mt_result.get("doc_ids") or [""])[0],
+                            "filename": " + ".join(mt_result.get("filenames") or [])[:200],
+                            "tables_joined": mt_result.get("tables", []),
+                        }
+
+            # ── Single-table fallback ───────────────────────────────────
+            if analytics_result is None:
+                target_doc = await _find_analytics_doc(
+                    req.query, req.doc_ids or None, user.level, user.role
+                )
+                if target_doc is not None:
+                    t_analytics = time.perf_counter()
+                    analytics_result = await _run_analytics(
+                        req.query, target_doc, user.level
+                    )
+                    analytics_ms = int((time.perf_counter() - t_analytics) * 1000)
+
+            if analytics_result is not None:
 
                 yield {
                     "event": "analytics",
@@ -2657,11 +2848,12 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                     ]
             except Exception:
                 confidence_chunks = []
-        confidence = _compute_confidence(
+        confidence_breakdown = _compute_confidence_breakdown(
             answer_mode=answer_mode,
             chunks=confidence_chunks,
             faithfulness=faithfulness,
         )
+        confidence = confidence_breakdown["overall"] if confidence_breakdown else None
 
         yield {
             "event": "done",
@@ -2681,6 +2873,7 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                     "corrective_retries": corrective_retries,
                     "faithfulness": faithfulness,
                     "confidence": confidence,
+                    "confidence_breakdown": confidence_breakdown,
                     "rbac_blocked": rbac_blocked,
                     "citation_check": citation_check,
                 }

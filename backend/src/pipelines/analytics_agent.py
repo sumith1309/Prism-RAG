@@ -1010,6 +1010,53 @@ SEMANTIC SORT RULE — BEFORE writing .nlargest/.nsmallest, ask:
   - For costs/losses: worst = HIGHEST (biggest loss); best = LOWEST.
   Re-read the user's superlative before picking the function.
 
+PATTERN I — N-TO-N CROSS-REFERENCE (avoid cartesian explosions):
+  When a query asks "services that use flagged vendors AND have training
+  gaps", three separate filters share ONLY department_id. Merging them
+  naively produces services × vendors × employees × trainings row
+  explosions. SOLUTION: aggregate at the level the user asks about —
+  usually one row per DEPARTMENT — with the other sides rolled up into
+  lists.
+  # 1) Find flagged depts (dept ids that own ≥1 flagged vendor)
+  flagged = df_vendors[df_vendors['risk_status'].isin(['Conditional','Suspended'])]
+  flagged_depts = set(flagged['owner_department_id'].dropna())
+  # 2) Critical services in those depts
+  crit = df_products_services[
+      (df_products_services['criticality_tier']=='Critical') &
+      (df_products_services['owner_department_id'].isin(flagged_depts))
+  ]
+  # 3) Training gaps for employees in those depts (no merge yet!)
+  incomplete = df_training_compliance[
+      df_training_compliance['status'].isin(['Pending','Overdue','In Progress','Not Started'])
+  ]
+  emp_dept = df_employees[df_employees['department_id'].isin(flagged_depts)][
+      ['employee_id','first_name','last_name','department_id']
+  ]
+  gaps = incomplete.merge(emp_dept, on='employee_id', how='inner')
+  # 4) Summarise PER DEPARTMENT — aggregate the N-to-N sides into lists
+  dept_names = df_departments.set_index('department_id')['department_name'].to_dict()
+  rows = []
+  for dept_id in sorted(flagged_depts):
+      svc_list = sorted(crit[crit['owner_department_id']==dept_id]['service_name'].unique().tolist())
+      vendor_list = sorted(flagged[flagged['owner_department_id']==dept_id]['vendor_name'].unique().tolist())
+      gap_rows = gaps[gaps['department_id']==dept_id]
+      gap_list = [f"{{r.first_name}} {{r.last_name}} — {{r.module_name}} ({{r.status}})"
+                  for r in gap_rows.itertuples()]
+      if svc_list and (vendor_list or gap_list):
+          rows.append({{
+              'department': dept_names.get(dept_id, f'dept_{{dept_id}}'),
+              'critical_services': ', '.join(svc_list),
+              'flagged_vendors':   ', '.join(vendor_list),
+              'training_gaps':     ' | '.join(gap_list) or '(none)',
+          }})
+  result = pd.DataFrame(rows)
+
+CARTESIAN GUARD — SANITY CHECK YOUR RESULT SIZE:
+  If result has WAY more rows than any input DataFrame (e.g. 900 rows
+  from inputs of 25, 3, 8), you've done an accidental cross-join. Fix
+  by switching to the groupby-then-aggregate approach (Pattern I) rather
+  than chained .merge() calls.
+
 === SOFT RULES ===
 4. For top-N, use .nlargest(N,'col') or .sort_values('col',ascending=False).head(N).
 5. Always include human-readable names alongside IDs in the result.
@@ -1065,6 +1112,30 @@ def _execute_multi_table_code(code: str, dfs: dict[str, pd.DataFrame]) -> dict[s
             "ok": False, "result": None, "result_type": "error", "chart": None,
             "error": "Code did not produce a `result` variable.", "code": code,
         }
+
+    # ── CARTESIAN GUARD ──────────────────────────────────────────────
+    # Detect accidental cross-joins: if the result DataFrame has way more
+    # rows than any input DataFrame, the LLM almost certainly chained
+    # merges through a weak key (e.g. department_id across three tables)
+    # instead of filtering/grouping. Signal this so the corrective retry
+    # can steer the LLM to Pattern I (groupby + list aggregation).
+    if isinstance(raw_result, pd.DataFrame) and len(raw_result) > 0:
+        max_input = max((len(d) for d in dfs.values()), default=0)
+        # 3x is the threshold: genuine full-table queries stay under 1x,
+        # legitimate self-joins might reach 2x, but 3x+ is almost always
+        # a cross-join explosion.
+        if max_input > 0 and len(raw_result) > max_input * 3:
+            return {
+                "ok": False, "result": None, "result_type": "error", "chart": None,
+                "error": (
+                    f"CARTESIAN_EXPLOSION: result has {len(raw_result)} rows but "
+                    f"the largest input DataFrame has only {max_input} rows. "
+                    f"Chained merges likely produced a cross-join. Rewrite using "
+                    f"Pattern I (groupby-then-aggregate) — filter first, then "
+                    f"summarise per entity with lists/counts instead of merging."
+                ),
+                "code": code,
+            }
 
     # Serialize (same logic as single-table path)
     try:

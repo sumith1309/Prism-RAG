@@ -961,6 +961,55 @@ PATTERN F — CEO lookup (by title, not id):
   )].iloc[0]
   ceo_ctc = df_salary_records[df_salary_records['employee_id']==ceo_row['employee_id']]['total_ctc_inr_lakhs'].iloc[0]
 
+PATTERN G — AGGREGATE BEFORE RANKING (critical for ratios & compliance):
+  When ranking by a ratio/rate across an entity (department, account manager),
+  you MUST aggregate all member records into ONE number per entity BEFORE
+  sorting. Picking .nlargest on a pre-aggregation dataframe ranks single
+  rows, not entities — almost always the wrong answer.
+  # WRONG: ratio per customer then nlargest → best customer, not best AM
+  # wrong = merged.assign(r=merged.arr/merged.ctc).nlargest(1,'r')
+  # RIGHT: sum ARR per AM, then divide by AM's CTC once:
+  per_am = (df_customers.merge(
+               df_employees[['employee_id']].rename(columns={{'employee_id':'am_id'}}),
+               left_on='account_manager_employee_id', right_on='am_id')
+            .groupby('am_id', as_index=False)
+            .agg(total_arr=('arr_inr_lakhs', 'sum')))
+  per_am = per_am.merge(
+      df_salary_records[['employee_id','total_ctc_inr_lakhs']],
+      left_on='am_id', right_on='employee_id')
+  per_am['arr_to_ctc'] = per_am['total_arr'] / per_am['total_ctc_inr_lakhs']
+  per_am = per_am.merge(df_employees[['employee_id','first_name','last_name']],
+                        on='employee_id')
+  result = per_am.nlargest(1, 'arr_to_ctc')[
+      ['first_name','last_name','total_arr','total_ctc_inr_lakhs','arr_to_ctc']
+  ]
+
+PATTERN H — COMPLIANCE/COMPLETION RATE (total-over-total, NOT mean-of-means):
+  Compliance rate = completed_records / total_records AT THE DEPARTMENT LEVEL.
+  Do NOT compute per-employee rate and then mean it — that over-weights
+  employees with few training records.
+  merged = df_training_compliance.merge(
+      df_employees[['employee_id','department_id']], on='employee_id')
+  merged = merged.merge(
+      df_departments[['department_id','department_name']], on='department_id')
+  by_dept = merged.groupby('department_name').agg(
+      total=('status', 'count'),
+      completed=('status', lambda s: (s == 'Completed').sum()),
+  ).reset_index()
+  by_dept['compliance_rate'] = by_dept['completed'] / by_dept['total']
+  # "WORST" compliance = LOWEST rate → nsmallest.
+  # "BEST"  compliance = HIGHEST rate → nlargest.
+  result = by_dept.nsmallest(1, 'compliance_rate')[
+      ['department_name','completed','total','compliance_rate']
+  ]
+
+SEMANTIC SORT RULE — BEFORE writing .nlargest/.nsmallest, ask:
+  - "worst / lowest / least / smallest / bottom" → nsmallest
+  - "best / highest / most / greatest / top"     → nlargest
+  - For ratios/rates: worst compliance = LOWEST rate; best ARR = HIGHEST.
+  - For costs/losses: worst = HIGHEST (biggest loss); best = LOWEST.
+  Re-read the user's superlative before picking the function.
+
 === SOFT RULES ===
 4. For top-N, use .nlargest(N,'col') or .sort_values('col',ascending=False).head(N).
 5. Always include human-readable names alongside IDs in the result.

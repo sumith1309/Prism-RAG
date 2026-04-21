@@ -943,14 +943,15 @@ async def find_target_docs(
     return tabular[:max_tables]
 
 
-def is_multi_table_query(query: str) -> bool:
+def is_multi_table_query(query: str, tabular_doc_count: int = 0) -> bool:
     """Heuristic: detect when a query needs cross-table JOINs.
 
     Signals:
     - Mentions >1 domain noun (employees, customers, departments, vendors,...)
-    - Uses relational phrasing ("per department", "by vendor", "whose manager",
-      "for each customer")
-    - Multiple "whose"/"that have"/"with" clauses
+    - Uses relational phrasing ("per department", "by vendor", "whose manager")
+    - Mentions compensation/financial terms AND ≥3 tabular docs are loaded
+      (single-table path would pick the wrong file — multi-table lets LLM
+      choose the right one from all available schemas)
     """
     q = query.lower()
     _DOMAIN_NOUNS = {
@@ -959,6 +960,9 @@ def is_multi_table_query(query: str) -> bool:
         "product", "products", "service", "services", "training", "asset",
         "assets", "license", "licenses", "transaction", "transactions",
         "manager", "managers", "account manager",
+        # Compensation / financial terms (strong signals even alone)
+        "ceo", "cto", "cfo", "executive", "compensation", "pay", "payroll",
+        "esop", "equity", "bonus", "ctc", "arr", "revenue",
     }
     hits = sum(1 for noun in _DOMAIN_NOUNS if noun in q)
     if hits >= 2:
@@ -970,8 +974,15 @@ def is_multi_table_query(query: str) -> bool:
         "whose ", "who have", "that have", "who has", "that own", "who own",
         "linked to", "managed by", "owned by", "assigned to",
         "for each ", "with unresolved", "with status",
+        "ratio", "compared to", "breakdown by",
     ]
     if sum(1 for p in _RELATIONAL_PATTERNS if p in q) >= 1 and hits >= 1:
+        return True
+
+    # When many tabular docs are loaded, single-table filename matching is
+    # unreliable — filename won't match queries about "pay", "ratio", etc.
+    # Route to multi-table so LLM can pick the right schema.
+    if tabular_doc_count >= 3 and hits >= 1:
         return True
     return False
 

@@ -1706,6 +1706,7 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
             find_target_doc as _find_analytics_doc,
             find_target_docs as _find_analytics_docs,
             is_multi_table_query as _is_multi_table,
+            list_tabular_docs as _list_tabular,
             looks_like_data_query as _is_data_query,
             run_analytics_query as _run_analytics,
             run_multi_table_query as _run_multi_analytics,
@@ -1721,7 +1722,8 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
         # like "Which Tier-1 customers ... whose account managers haven't
         # completed DPDP training?" have no aggregation keywords but clearly
         # need a cross-file JOIN, not a RAG document search.
-        if _is_multi_table(req.query):
+        _tabular_count = len(_list_tabular(max_doc_level=user.level))
+        if _is_multi_table(req.query, _tabular_count):
             _multi_docs = await _find_analytics_docs(
                 req.query, req.doc_ids or None, user.level, user.role
             )
@@ -1879,37 +1881,12 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                 return
 
         if _data_intent == "data":
-            # ── Multi-table path (cross-file JOIN queries) ──────────────
-            # If the query mentions multiple domain entities (employees +
-            # departments, customers + training, etc.), load all visible
-            # tabular docs and let the LLM write pandas merge() code.
+            # NOTE: the primary multi-table path runs EARLIER (right after
+            # _data_intent classification, before this block). This block
+            # is now the single-table path for queries that are clearly
+            # data-intent but don't match multi-table criteria.
             analytics_result = None
-            if _is_multi_table(req.query):
-                multi_docs = await _find_analytics_docs(
-                    req.query, req.doc_ids or None, user.level, user.role
-                )
-                if len(multi_docs) >= 2:
-                    t_analytics = time.perf_counter()
-                    mt_result = await _run_multi_analytics(
-                        req.query, multi_docs, user.level
-                    )
-                    analytics_ms = int((time.perf_counter() - t_analytics) * 1000)
-                    if mt_result["ok"]:
-                        analytics_result = {
-                            "ok": True,
-                            "result": mt_result["result"],
-                            "result_type": mt_result["result_type"],
-                            "chart": mt_result["chart"],
-                            "error": None,
-                            "code": mt_result["code"],
-                            # Compose a synthetic doc_id/filename for legacy
-                            # event schema — use the first joined table
-                            "doc_id": (mt_result.get("doc_ids") or [""])[0],
-                            "filename": " + ".join(mt_result.get("filenames") or [])[:200],
-                            "tables_joined": mt_result.get("tables", []),
-                        }
-
-            # ── Single-table fallback ───────────────────────────────────
+            target_doc = None
             if analytics_result is None:
                 target_doc = await _find_analytics_doc(
                     req.query, req.doc_ids or None, user.level, user.role

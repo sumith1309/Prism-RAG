@@ -152,7 +152,12 @@ export function MessageBubble({
 
   // Analytics: data query answered by the SQL analytics agent
   if (message.answerMode === "analytics" && message.analytics) {
-    return <DataCard data={message.analytics} />;
+    return (
+      <DataCard
+        data={message.analytics}
+        latencyMs={message.latency_ms?.total}
+      />
+    );
   }
 
   // Blocked: prompt injection guardrail triggered

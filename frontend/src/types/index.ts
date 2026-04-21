@@ -106,6 +106,14 @@ export interface ChatMessage {
     code: string;
     doc_id: string;
     filename: string;
+    // Multi-table analytics: list of loaded table names (e.g. "employees"),
+    // and the per-file list of filenames for nicer source attribution.
+    tables?: string[];
+    filenames?: string[];
+    tables_joined?: string[];
+    // Backend-measured time for the analytics pipeline (LLM code gen +
+    // pandas execution). Populated on the done event in ms.
+    analytics_ms?: number;
   };
   // Suggested follow-up questions (3 clickable pills after the answer)
   followups?: string[];

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import ReactECharts from "echarts-for-react";
 import {
@@ -7,7 +7,8 @@ import {
   ChevronUp,
   Code2,
   Database,
-  Sparkles,
+  FileSpreadsheet,
+  Timer,
   Table2,
   AlertTriangle,
 } from "lucide-react";
@@ -27,11 +28,57 @@ interface AnalyticsPayload {
   code: string;
   doc_id: string;
   filename: string;
+  tables?: string[];
+  filenames?: string[];
+  tables_joined?: string[];
 }
 
-export function DataCard({ data }: { data: AnalyticsPayload }) {
+// Map loaded table name → canonical filename for display.
+// e.g. "employees" → "02_Employees.xlsx"
+function matchTableToFilename(tableName: string, filenames: string[]): string | null {
+  if (!filenames || filenames.length === 0) return null;
+  const needle = tableName.toLowerCase().replace(/_/g, "");
+  const hit = filenames.find((f) =>
+    f.toLowerCase().replace(/[^a-z0-9]/g, "").includes(needle)
+  );
+  return hit ?? null;
+}
+
+// Extract the DataFrames ACTUALLY referenced by the generated code.
+// The LLM loads all tabular docs but usually touches only 2-4.
+function extractReferencedTables(code: string): string[] {
+  if (!code) return [];
+  const matches = Array.from(code.matchAll(/\bdf_([a-z][a-z0-9_]*)/gi));
+  const uniq = new Set<string>(matches.map((m) => m[1].toLowerCase()));
+  return Array.from(uniq).sort();
+}
+
+export function DataCard({
+  data,
+  latencyMs,
+}: {
+  data: AnalyticsPayload;
+  latencyMs?: number;
+}) {
   const [showCode, setShowCode] = useState(false);
   const [showFullTable, setShowFullTable] = useState(false);
+
+  // Compute actual sources used: parse code for df_xxx refs, map to
+  // original filenames. Falls back to data.filename when no match.
+  const sourceFiles = useMemo(() => {
+    const filenames = data.filenames ?? [];
+    const tableRefs = extractReferencedTables(data.code);
+    if (tableRefs.length > 0 && filenames.length > 0) {
+      const matched = tableRefs
+        .map((t) => matchTableToFilename(t, filenames))
+        .filter((x): x is string => !!x);
+      if (matched.length > 0) return Array.from(new Set(matched));
+    }
+    // Single-table or fallback: just the primary filename
+    if (data.filename && !data.filename.includes(" + ")) return [data.filename];
+    // Multi-table filename string — split it
+    return data.filename ? data.filename.split(" + ").map((s) => s.trim()).filter(Boolean).slice(0, 6) : [];
+  }, [data.code, data.filenames, data.filename]);
 
   if (!data.ok) {
     return (
@@ -69,15 +116,18 @@ export function DataCard({ data }: { data: AnalyticsPayload }) {
         </div>
 
         <div className="flex-1 min-w-0 space-y-3">
-          {/* Header */}
+          {/* Header — just the mode badge, sources go in the bottom panel */}
           <div className="flex items-center gap-2 flex-wrap">
             <span className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-[3px] text-[10.5px] font-semibold text-sky-700">
               <BarChart3 className="w-3 h-3" strokeWidth={2.25} />
               Data Analytics
             </span>
-            <span className="text-[11px] text-fg-muted">
-              from <span className="font-medium text-fg">{prettifyFilename(data.filename)}</span>
-            </span>
+            {typeof latencyMs === "number" && latencyMs > 0 && (
+              <span className="inline-flex items-center gap-1 text-[11px] text-fg-muted">
+                <Timer className="w-3 h-3" strokeWidth={2} />
+                {formatLatency(latencyMs)}
+              </span>
+            )}
           </div>
 
           {/* Scalar result */}
@@ -161,19 +211,55 @@ export function DataCard({ data }: { data: AnalyticsPayload }) {
           {/* ECharts chart */}
           {data.chart && <ChartRenderer chart={data.chart} />}
 
-          {/* Generated code toggle */}
-          <button
-            onClick={() => setShowCode(!showCode)}
-            className="text-[11px] text-fg-muted hover:text-accent flex items-center gap-1 transition-colors"
-          >
-            <Code2 className="w-3 h-3" />
-            {showCode ? "Hide" : "Show"} generated code
-          </button>
-          {showCode && data.code && <CodeBlock code={data.code} />}
+          {/* Sources + latency panel — replaces the raw code dump */}
+          <div className="card px-3 py-2.5">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                <FileSpreadsheet className="w-3 h-3 text-fg-muted shrink-0" strokeWidth={2} />
+                <span className="text-[11px] text-fg-muted shrink-0">Sources:</span>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {sourceFiles.length > 0 ? (
+                    sourceFiles.map((fn) => (
+                      <span
+                        key={fn}
+                        className="inline-flex items-center rounded-md border border-border bg-bg-elevated px-2 py-[2px] text-[10.5px] font-medium text-fg"
+                        title={fn}
+                      >
+                        {prettifyFilename(fn)}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-[11px] text-fg-muted italic">—</span>
+                  )}
+                </div>
+              </div>
+              {typeof latencyMs === "number" && latencyMs > 0 && (
+                <div className="flex items-center gap-1 text-[11px] text-fg-muted shrink-0">
+                  <Timer className="w-3 h-3" strokeWidth={2} />
+                  <span className="font-medium text-fg">{formatLatency(latencyMs)}</span>
+                </div>
+              )}
+            </div>
+            {data.code && (
+              <button
+                onClick={() => setShowCode(!showCode)}
+                className="mt-2 text-[10.5px] text-fg-muted hover:text-accent flex items-center gap-1 transition-colors"
+              >
+                <Code2 className="w-3 h-3" />
+                {showCode ? "Hide" : "View"} generated pandas code
+              </button>
+            )}
+            {showCode && data.code && <CodeBlock code={data.code} />}
+          </div>
         </div>
       </div>
     </motion.div>
   );
+}
+
+function formatLatency(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  return `${(ms / 1000).toFixed(2)} s`;
 }
 
 function ChartRenderer({

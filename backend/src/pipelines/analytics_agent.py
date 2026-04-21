@@ -858,50 +858,115 @@ def _multi_table_schema_summary(dfs: dict[str, pd.DataFrame]) -> str:
     return "\n".join(lines)
 
 
-MULTI_TABLE_ANALYTICS_PROMPT = """You are a senior data analyst with access to MULTIPLE pandas DataFrames. Answer the user's question by joining them with pd.merge() as needed.
+MULTI_TABLE_ANALYTICS_PROMPT = """You are a senior data analyst with access to MULTIPLE pandas DataFrames. Answer by joining with pd.merge() as needed.
 
 AVAILABLE DATAFRAMES:
 {schema}
 
 RULES:
-1. Use the exact variable names shown (df_employees, df_departments, etc.).
+1. Use exact variable names shown (df_employees, df_departments, etc.).
 2. Use ONLY the column names listed in "EXACT COLUMN NAMES". Do NOT invent
-   names. If a column you expect isn't there, pick the closest one that IS.
-3. For joins, use pd.merge(left, right, on='<id>', how='inner'|'left').
-4. MERGE SUFFIX PITFALL (CRITICAL — most common bug):
-   When both tables share a column name (e.g. both have 'category' or 'level'),
-   pd.merge adds default suffixes '_x' and '_y'. BEFORE you groupby/filter on
-   that column, either:
-   (a) RENAME before merge:
-       df_vendors2 = df_vendors.rename(columns={{'category': 'vendor_category'}})
-       merged = pd.merge(df_financial_transactions, df_vendors2, on='vendor_id')
-       merged.groupby('vendor_category')['amount'].sum()
-   (b) Use explicit suffixes and reference the suffixed name:
-       merged = pd.merge(ft, vendors, on='vendor_id', suffixes=('_tx','_vendor'))
-       merged.groupby('category_vendor')...  # note '_vendor' suffix
-5. SELF-JOIN PITFALL (for "manager's manager"):
-   # Step 1: customer → account manager
-   am = pd.merge(df_customers, df_employees,
-                 left_on='account_manager_employee_id',
-                 right_on='employee_id', suffixes=('','_am'))
-   # Step 2: account manager → their manager
-   mgr = pd.merge(am, df_employees,
-                  left_on='manager_employee_id',
-                  right_on='employee_id', suffixes=('','_mgr'))
-   # Now columns are: first_name (customer fields), first_name_mgr (manager)
-   # The AM's name is in 'first_name' after first merge; after second merge
-   # it gets renamed. Use suffixes consistently.
-6. For NOT conditions ("have NOT completed X"):
-   completed_ids = df_training[df_training['status'] == 'Completed']['employee_id']
-   not_completed = df_employees[~df_employees['employee_id'].isin(completed_ids)]
-7. When returning IDs, ALSO include the human-readable name column.
-8. Store the final answer in `result` (DataFrame, Series, scalar, or dict).
-9. For top-N, use .nlargest(N, 'col') or .sort_values('col', ascending=False).head(N).
-10. For scalar answers, include context (e.g. "Engineering dept — INR 45.2 crore").
-11. CEO lookup: filter df_employees by job_title containing 'CEO' or
-    'Chairman' or 'Managing Director' — do NOT assume employee_id == 1001.
-12. Never access a variable not in the list. Never call reset_index() before
-    checking what columns exist. Print df.columns if unsure.
+   column names like 'incident_id' or 'manager_id' unless they appear in the
+   list. If the column you expect isn't there, use the closest one that IS.
+3. Store the final answer in `result` (DataFrame, Series, scalar, or dict).
+
+=== TABLE SEMANTICS — USE THE RIGHT DataFrame ===
+- Physical hardware (laptops, GPU workstations, monitors, phones) and software
+  licenses are in df_assets_licenses — NOT in df_products_services.
+- df_products_services is SaaS microservices and internal products, not assets
+  owned by employees.
+- Training records (which employee completed which module, with status) are
+  in df_training_compliance, with columns: employee_id, module_name, status,
+  completion_date. Status values: 'Completed', 'Pending', 'Overdue',
+  'In Progress', 'Not Started'.
+- Vendors (Apple, NVIDIA, AWS) are in df_vendors. Match by vendor_name
+  (e.g. vendor_name.str.contains('Apple', case=False, na=False)).
+- Financial transactions are in df_financial_transactions (has category like
+  'Operating Expense' or 'CapEx'), separate from vendors' category (which
+  describes vendor type like 'Cloud Infrastructure', 'Hardware').
+
+=== COMMON PITFALLS — FOLLOW THESE PATTERNS EXACTLY ===
+
+PATTERN A — Simple 2-table join with human-readable names:
+  merged = df_a.merge(df_b, on='shared_id', how='inner')
+  # If both have 'category', use rename FIRST:
+  df_b2 = df_b.rename(columns={{'category': 'vendor_category'}})
+  merged = df_a.merge(df_b2, on='shared_id')
+
+PATTERN B — Deduplicate after merge (CRITICAL for "which X have Y"):
+  # If question is "which vendors have assets", each vendor-asset pair produces
+  # a row — deduplicate to get UNIQUE vendors:
+  result = merged[['vendor_id','vendor_name','risk_status']].drop_duplicates()
+
+PATTERN C — Self-join for manager chain (CRITICAL for "manager's manager"):
+  # STEP 1: customers → account manager (Employee)
+  #   Use left_on + right_on + explicit suffix on the right side
+  step1 = df_customers.merge(
+      df_employees.rename(columns={{
+          'employee_id':'am_employee_id',
+          'first_name':'am_first_name',
+          'last_name':'am_last_name',
+          'manager_employee_id':'am_manager_id',
+      }}),
+      left_on='account_manager_employee_id',
+      right_on='am_employee_id', how='left'
+  )
+  # STEP 2: account manager's manager (Employee again, renamed differently)
+  step2 = step1.merge(
+      df_employees.rename(columns={{
+          'employee_id':'mgr_employee_id',
+          'first_name':'mgr_first_name',
+          'last_name':'mgr_last_name',
+      }}),
+      left_on='am_manager_id',
+      right_on='mgr_employee_id', how='left'
+  )
+  # Now columns are clean & explicit — no _x/_y confusion.
+  result = step2.nlargest(10, 'arr_inr_lakhs')[
+      ['customer_name','arr_inr_lakhs','am_first_name','am_last_name',
+       'mgr_first_name','mgr_last_name']
+  ]
+
+PATTERN D — 3-way intersection (L5+ employees AND Apple laptops AND training gaps):
+  # Step 1: filter level
+  senior = df_employees[df_employees['level'].isin(['L5','L6','L7','L8'])].copy()
+  # Step 2: find employees with Apple laptops (case-insensitive contains)
+  apple_vendors = df_vendors[df_vendors['vendor_name'].str.contains('Apple', case=False, na=False)]['vendor_id']
+  apple_assets = df_assets_licenses[
+      (df_assets_licenses['asset_type'].str.contains('Laptop', case=False, na=False)) &
+      (df_assets_licenses['vendor_id'].isin(apple_vendors))
+  ]
+  apple_owners = set(apple_assets['employee_id'].dropna())
+  # Step 3: find employees with unresolved training
+  unresolved = df_training_compliance[
+      df_training_compliance['status'].isin(['Pending','Overdue','In Progress','Not Started'])
+  ]
+  unresolved_owners = set(unresolved['employee_id'].dropna())
+  # Step 4: intersect all three
+  final_ids = apple_owners & unresolved_owners & set(senior['employee_id'])
+  result = senior[senior['employee_id'].isin(final_ids)][
+      ['employee_id','first_name','last_name','level']
+  ]
+
+PATTERN E — NOT-condition ("employees who have NOT completed X"):
+  completed = df_training_compliance[
+      (df_training_compliance['module_name']=='DPDP Act 2023') &
+      (df_training_compliance['status']=='Completed')
+  ]['employee_id']
+  not_completed = df_employees[~df_employees['employee_id'].isin(completed)]
+
+PATTERN F — CEO lookup (by title, not id):
+  ceo_row = df_employees[df_employees['job_title'].str.contains(
+      'CEO|Chairman|Managing Director|MD', case=False, regex=True, na=False
+  )].iloc[0]
+  ceo_ctc = df_salary_records[df_salary_records['employee_id']==ceo_row['employee_id']]['total_ctc_inr_lakhs'].iloc[0]
+
+=== SOFT RULES ===
+4. For top-N, use .nlargest(N,'col') or .sort_values('col',ascending=False).head(N).
+5. Always include human-readable names alongside IDs in the result.
+6. For scalar answers, add context string (e.g. "Engineering — 14.32 ratio").
+7. NEVER reference a suffixed column name (_x, _y, _am, _mgr) that isn't guaranteed
+   to exist. Prefer explicit .rename() over suffix-based merges.
 
 QUESTION: {query}
 
@@ -1051,7 +1116,7 @@ async def find_target_docs(
     doc_ids: list[str] | None,
     user_level: int,
     caller_role: str | None = None,
-    max_tables: int = 10,
+    max_tables: int = 20,
 ) -> list[store.Document]:
     """Find multiple tabular docs for a cross-table query.
 
@@ -1191,11 +1256,26 @@ async def run_multi_table_query(
 
     # Corrective retry on runtime error
     if not result["ok"] and result["error"] and "safety check" not in result["error"]:
+        # If KeyError, inject explicit column lists per DataFrame so the LLM
+        # stops hallucinating column names. This is the #1 retry failure mode.
+        column_dump = ""
+        if "KeyError" in (result["error"] or ""):
+            column_dump = "\n\nEXACT COLUMN LISTS (copy these names verbatim):\n"
+            for tname, df_ in dfs.items():
+                clean_cols = [c for c in df_.columns
+                              if not str(c).startswith("_")
+                              and not str(c).startswith("Unnamed")
+                              and not str(c).startswith("TechNova Inc.")]
+                column_dump += f"  df_{tname}.columns = {clean_cols}\n"
         retry_prompt = (
-            f"Your previous code failed:\n{result['error']}\n\n"
+            f"Your previous code failed with:\n{result['error']}\n\n"
             f"Original code:\n{code}\n\n"
             f"Fix it. Available DataFrames: {', '.join(f'df_{n}' for n in dfs.keys())}. "
-            f"Store the answer in `result`.\n\n"
+            f"Store the answer in `result`."
+            f"{column_dump}\n\n"
+            f"Hint: after pd.merge with suffixes, check df.columns before "
+            f"accessing. For self-joins, prefer explicit .rename() over suffixes "
+            f"(see Pattern C in the original prompt).\n\n"
             f"{schema}\n\nQUESTION: {query}\n\n"
             f"Write ONLY the corrected Python code:"
         )

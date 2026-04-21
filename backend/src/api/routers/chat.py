@@ -1751,7 +1751,7 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                         and (_last_assistant.answer_mode or "") == "analytics"
                         and _last_user is not None):
                     q_words = req.query.lower().split()
-                    is_short = len(q_words) < 14
+                    is_short = len(q_words) < 18
                     _MOD_MARKERS = {
                         "simpler", "simplify", "shorter", "fewer", "only",
                         "just", "truncat", "untruncated", "without truncat",
@@ -1762,6 +1762,20 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                         "more detail", "summary", "summarize", "aggregate",
                         "group by", "breakdown", "percentage", "%",
                         "instead", "with just", "just the", "only the",
+                        # Extra modification phrases users actually type
+                        "alphabetical", "alphabetically", "ascending",
+                        "descending", "reverse", "flip", "transpose",
+                        "sort that", "sort it", "order it", "order that",
+                        "show that", "show it", "format as", "format it",
+                        "that list", "that table", "that result",
+                        "remove", "drop", "exclude", "include",
+                        "add", "append", "with", "without",
+                        "as single", "single column", "one column",
+                        "one row", "two column", "wide", "narrow",
+                        "combine", "merge them", "join", "rename",
+                        "rounded", "raw values", "no decimals",
+                        "first 5", "first 10", "last 5", "last 10",
+                        "this one", "that one", "previous", "above",
                     }
                     ql = req.query.lower()
                     has_mod = any(m in ql for m in _MOD_MARKERS)
@@ -1843,6 +1857,7 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                             "doc_id": (_mt_result.get("doc_ids") or [""])[0],
                             "filename": " + ".join(_mt_result.get("filenames") or [])[:200],
                             "tables_joined": _mt_result.get("tables", []),
+                            "validator_concern": _mt_result.get("validator_concern"),
                         }),
                     }
                     if _mt_result["result_type"] == "table":
@@ -1880,6 +1895,7 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                                     "filename": " + ".join(_mt_result.get("filenames") or [])[:200],
                                     "ok": True,
                                     "error": None,
+                                    "validator_concern": _mt_result.get("validator_concern"),
                                 }
                             }),
                             refused=False, answer_mode="analytics",
@@ -1971,6 +1987,7 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                         "code": analytics_result["code"],
                         "doc_id": analytics_result["doc_id"],
                         "filename": analytics_result["filename"],
+                        "validator_concern": analytics_result.get("validator_concern"),
                     }),
                 }
 
@@ -2008,6 +2025,7 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                                 "code": analytics_result["code"],
                                 "doc_id": analytics_result["doc_id"],
                                 "filename": analytics_result["filename"],
+                                "validator_concern": analytics_result.get("validator_concern"),
                             }
                         }),
                         refused=False, answer_mode="analytics",

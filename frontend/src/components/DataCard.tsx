@@ -31,6 +31,7 @@ interface AnalyticsPayload {
   tables?: string[];
   filenames?: string[];
   tables_joined?: string[];
+  validator_concern?: string | null;
 }
 
 // Map loaded table name → canonical filename for display.
@@ -210,6 +211,17 @@ export function DataCard({
 
           {/* ECharts chart */}
           {data.chart && <ChartRenderer chart={data.chart} />}
+
+          {/* Validator concern — second-LLM sanity check flagged something */}
+          {data.validator_concern && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-600 mt-[1px] shrink-0" strokeWidth={2} />
+              <div className="text-[11.5px] leading-relaxed text-amber-900">
+                <span className="font-semibold">Sanity check: </span>
+                {data.validator_concern}
+              </div>
+            </div>
+          )}
 
           {/* Sources + latency panel — replaces the raw code dump */}
           <div className="card px-3 py-2.5">

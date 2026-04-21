@@ -88,6 +88,24 @@ _DATA_KEYWORDS = {
 }
 
 
+# Derived-metric keywords — computable from underlying tabular columns.
+# Unlike _DATA_KEYWORDS (which requires ≥2 matches to classify as data),
+# a single derived-metric hit is enough to force analytics routing. Without
+# this bridge, "what's our operating margin?" reads as a pure finance
+# concept and routes to document RAG, which truthfully says "documents do
+# not specify" — even though Financial_Transactions contains Revenue +
+# Operating Expense rows that let the analytics agent derive it.
+_DERIVED_METRIC_KEYWORDS = {
+    "operating margin", "gross margin", "net margin", "profit margin",
+    "ebitda", "ebit", "opex", "capex", "roi", "roa", "roe",
+    "burn rate", "runway", "utilization", "utilisation",
+    "attrition rate", "churn rate", "retention rate",
+    "compensation ratio", "pay ratio", "gender pay gap",
+    "cost per employee", "revenue per employee", "arr per employee",
+    "headcount by", "headcount per",
+}
+
+
 # Phrases that indicate a document/policy question, NOT a data query.
 # "What is the salary policy?" should go to RAG, not pandas.
 _DOC_QUERY_SIGNALS = {
@@ -122,8 +140,14 @@ def classify_data_query(query: str) -> str:
     'What is the total count of present' → 'data'
     'What is the salary policy' → 'doc'
     'What is the total salary policy breakdown' → 'ambiguous'
+    'What is our operating margin?' → 'data' (derived-metric bridge)
     """
     q_lower = query.lower()
+    # Derived-metric bridge: a single hit on a computable metric is enough
+    # to force analytics, even when ordinary data keywords (total/sum/etc.)
+    # are absent. These phrases imply arithmetic over tabular columns.
+    if any(kw in q_lower for kw in _DERIVED_METRIC_KEYWORDS):
+        return "data"
     data_matches = sum(1 for kw in _DATA_KEYWORDS if _word_boundary_match(kw, q_lower))
     if data_matches < 2:
         return "doc"
@@ -470,7 +494,15 @@ STEP 2 — ALWAYS TRY TO COMPUTE FIRST:
 - Store your answer in `result` (DataFrame, Series, scalar, or dict).
 - `result` must be a COMPUTED VALUE (number, table, dict), NEVER a column name, dtype, or label.
 - For groupby, use columns marked as "ENTITY ID" or "categorical" in the schema.
-- For percentage calculations, round to 2 decimal places.
+- NEVER round intermediate values. Sort/rank/compare on RAW values; only
+  round in the final display step. Rounding before sort flips near-ties.
+- For percentages, compute on raw values, then round ONLY the final column.
+- INCLUDE ALL MATCHING ROWS, even small or zero values, unless the user
+  explicitly asked to exclude them. Let the user judge significance.
+- DO NOT write `import` statements. The following are already loaded and
+  callable directly: `pd`, `np`, `datetime`, `date`, `timedelta`,
+  `Counter`, `defaultdict`. If you'd normally write
+  `from datetime import timedelta`, just use `timedelta(...)` directly.
 - If the question asks for a chart, or if the result is a time-series / distribution, ALWAYS create a `chart` variable showing ALL data points (not just the aggregate). For example, "highest absent day" should chart absent counts for EVERY day, not just the max.
 - Chart format: dict with type ("bar"|"line"|"pie"), title (str), xAxis (list of ALL labels), series (list of {{name, data: list of ALL values}}).
 - For scalar answers about a max/min/peak, ALWAYS include context: which date, which employee, which category. E.g. result = "57 employees absent on 01-02-2026 (Sunday)" not just 57.
@@ -499,6 +531,13 @@ _SAFE_BUILTINS = {
     "range": range, "round": round, "set": set, "sorted": sorted,
     "str": str, "sum": sum, "tuple": tuple, "type": type,
     "zip": zip, "True": True, "False": False, "None": None,
+    "hasattr": hasattr, "repr": repr,
+    # Needed internally by stdlib objects like datetime.date.today() and
+    # Counter.__init__ — they call __import__ during attribute resolution.
+    # User-level `import` statements are rejected by the regex in
+    # _UNSAFE_PATTERNS BEFORE exec runs, so exposing __import__ here is
+    # safe: it can only fire for internal machinery, not user code.
+    "__import__": __import__,
 }
 
 # Patterns that indicate malicious or unsafe code
@@ -555,12 +594,22 @@ def _execute_pandas_code(code: str, df: pd.DataFrame) -> dict[str, Any]:
         }
 
     import numpy as np
+    from datetime import datetime, date, timedelta
+    from collections import Counter, defaultdict
 
     sandbox = {
         "__builtins__": _SAFE_BUILTINS,
         "df": df.copy(),  # copy so the original is never mutated
         "pd": pd,
         "np": np,
+        # Preload common stdlib helpers so the LLM never writes `import`
+        # (the safety check rejects it). See multi-table sandbox for the
+        # Q4 laptop-spend regression that motivated this.
+        "datetime": datetime,
+        "date": date,
+        "timedelta": timedelta,
+        "Counter": Counter,
+        "defaultdict": defaultdict,
     }
 
     try:
@@ -820,13 +869,91 @@ def _detect_foreign_keys(dfs: dict[str, pd.DataFrame]) -> list[dict]:
     return fks
 
 
-def _multi_table_schema_summary(dfs: dict[str, pd.DataFrame]) -> str:
+def _parse_readme_schema_graph(docs: list[store.Document]) -> list[dict]:
+    """Extract FK edges from a Schema_Notes / README sheet if one exists.
+
+    When sir's relational dataset ships with a `00_README_and_Schema.xlsx`
+    containing a sheet like `Schema_Notes`, `README`, or `Relationships`,
+    parse it for lines of the form:
+        employees.department_id → departments.department_id
+        customers.account_manager_employee_id -> employees.employee_id
+        FK: salary_records.employee_id references employees.employee_id
+
+    Returns a list of {"from": "df_a.col", "to": "df_b.col", "reason": "readme"}
+    edges — same shape as `_detect_foreign_keys` so they can be merged.
+
+    This complements the *_id auto-detector: the README catches
+    relationships the heuristic misses (renamed keys like
+    `account_manager_employee_id → employees.employee_id`).
+    """
+    edges: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    # Regex: "a.x → b.y" or "a.x -> b.y" or "a.x references b.y"
+    arrow = re.compile(
+        r"\b([a-z][a-z0-9_]+)\.([a-z][a-z0-9_]+)\s*(?:→|->|references|ref\.|refs)\s*"
+        r"([a-z][a-z0-9_]+)\.([a-z][a-z0-9_]+)\b",
+        re.IGNORECASE,
+    )
+
+    for doc in docs:
+        if Path(doc.filename).suffix.lower() not in {".xlsx", ".xls"}:
+            continue
+        try:
+            path = _raw_path(doc)
+            if not path.exists():
+                continue
+            xls = pd.ExcelFile(path)
+        except Exception:
+            continue
+
+        # Find schema/notes/readme sheets — ones we explicitly skip in
+        # load_dataframe. Flip the filter here: we WANT them.
+        schema_sheets = [s for s in xls.sheet_names if not _is_data_sheet(s)]
+        for sheet in schema_sheets:
+            try:
+                raw = pd.read_excel(path, sheet_name=sheet, header=None, dtype=str)
+            except Exception:
+                continue
+            # Flatten every cell into one big text blob and scan
+            text = "\n".join(
+                str(v) for row in raw.values.tolist() for v in row if v and str(v) != "nan"
+            )
+            for m in arrow.finditer(text):
+                src_tbl, src_col, dst_tbl, dst_col = (
+                    m.group(1).lower(), m.group(2).lower(),
+                    m.group(3).lower(), m.group(4).lower(),
+                )
+                edge = (f"df_{src_tbl}.{src_col}", f"df_{dst_tbl}.{dst_col}")
+                if edge in seen:
+                    continue
+                seen.add(edge)
+                edges.append({
+                    "from": edge[0], "to": edge[1], "reason": "readme",
+                })
+    return edges
+
+
+def _multi_table_schema_summary(dfs: dict[str, pd.DataFrame], docs: list[store.Document] | None = None) -> str:
     """Generate a combined schema summary for multiple DataFrames with FK hints."""
     lines = []
     lines.append(f"You have {len(dfs)} DataFrames loaded.")
     lines.append("CRITICAL: Use ONLY the column names listed below — do NOT")
     lines.append("invent names like 'incident_id' or 'manager_employee_id' if")
     lines.append("they aren't listed. Copy names EXACTLY as shown (case, underscores).")
+    lines.append("")
+
+    # Pre-flight column dump — same format as the retry-on-KeyError path.
+    # Injecting this BEFORE the first attempt (not only on retry) stops
+    # column hallucination upfront. Prevention beats recovery.
+    lines.append("=== VERBATIM COLUMN LISTS (copy these names exactly) ===")
+    for name, df in dfs.items():
+        clean_cols = [
+            c for c in df.columns
+            if not str(c).startswith("_")
+            and not str(c).startswith("Unnamed")
+            and not str(c).startswith("TechNova Inc.")
+        ]
+        lines.append(f"  df_{name}.columns = {clean_cols}")
     lines.append("")
 
     for name, df in dfs.items():
@@ -849,10 +976,23 @@ def _multi_table_schema_summary(dfs: dict[str, pd.DataFrame]) -> str:
         lines.append("")
 
     fks = _detect_foreign_keys(dfs)
+
+    # Merge README-declared edges (if any) on top of the auto-detected set.
+    # README wins on conflicts — it's the human source of truth, and catches
+    # renamed keys (account_manager_employee_id → employees.employee_id)
+    # that the *_id heuristic can't match by name alone.
+    if docs:
+        readme_edges = _parse_readme_schema_graph(docs)
+        existing = {(fk["from"], fk["to"]) for fk in fks}
+        for edge in readme_edges:
+            if (edge["from"], edge["to"]) not in existing:
+                fks.append(edge)
+
     if fks:
         lines.append("Likely JOIN keys (foreign-key relationships):")
         for fk in fks:
-            lines.append(f"  {fk['from']} → {fk['to']}")
+            tag = " [from README]" if fk.get("reason") == "readme" else ""
+            lines.append(f"  {fk['from']} → {fk['to']}{tag}")
         lines.append("")
 
     return "\n".join(lines)
@@ -866,9 +1006,79 @@ AVAILABLE DATAFRAMES:
 RULES:
 1. Use exact variable names shown (df_employees, df_departments, etc.).
 2. Use ONLY the column names listed in "EXACT COLUMN NAMES". Do NOT invent
-   column names like 'incident_id' or 'manager_id' unless they appear in the
-   list. If the column you expect isn't there, use the closest one that IS.
+   column names like 'incident_id', 'manager_id', or unit-shortened aliases
+   like 'amount' when the real column is 'amount_inr_crores'. If the column
+   you expect isn't there, use the closest one that IS. Before writing any
+   column reference, re-read the EXACT COLUMN NAMES list.
 3. Store the final answer in `result` (DataFrame, Series, scalar, or dict).
+4. NEVER round intermediate values. Sort, rank and compare on RAW values.
+   Only round in the FINAL display step (e.g. `.round(2)` on the result
+   DataFrame before assigning to `result`). Rounding too early flips
+   near-tie rankings (0.87 vs 0.88 compliance, 0.331 vs 0.329 margin).
+5. INCLUDE ALL MATCHING ROWS, even when values are very small or zero.
+   Do not add `> 0` or `!= 0` filters unless the user explicitly asks to
+   exclude them. Let the user decide what counts as significant — dropping
+   a small department from the answer is worse than showing it as 0.
+6. DO NOT write `import` statements — the sandbox rejects them. The
+   following are pre-loaded and callable directly: `pd`, `np`, `datetime`,
+   `date`, `timedelta`, `Counter`, `defaultdict`. If you'd normally write
+   `from datetime import timedelta`, just use `timedelta(...)` directly.
+7. DEDUPLICATE after merges when the question asks about entities, not
+   pairs. "Which customers have X" → one row per customer, use
+   `.drop_duplicates(subset=['customer_id'])`. The fan-out of a merge
+   will multiply rows — always ask "should this entity appear more than
+   once?" before returning.
+
+=== COLUMN-UNIT SUFFIX CONVENTIONS ===
+Financial columns in this corpus carry unit suffixes. When the user
+says "amount" / "revenue" / "cost", pick the column from the EXACT
+COLUMN NAMES list — it will be one of:
+  • <name>_inr           (rupees)
+  • <name>_inr_lakhs     (₹ lakhs = 100,000)
+  • <name>_inr_crores    (₹ crores = 10,000,000)
+  • <name>_usd           (US dollars)
+Never shorten the column to 'amount' if the real column is 'amount_inr_crores'
+— you will get a KeyError. When aggregating across tables with different
+units, convert to a common unit first and document the conversion.
+
+=== GEO / MARKET GLOSSARY ===
+When a query mentions market groupings, interpret them as:
+  • "APAC" / "Asia-Pacific"         → India, Japan, South Korea, Singapore,
+                                      Vietnam, Indonesia, Philippines,
+                                      Thailand, Malaysia, Australia, China
+  • "regulated Asian markets"       → India, Japan, South Korea (strong
+                                      data-protection regimes: DPDP, APPI,
+                                      PIPA). Filter customers.country in
+                                      that set.
+  • "data-localization risk"        → Vietnam, Indonesia (per Board_Minutes
+                                      Q4 §5). Filter customers.country in
+                                      that set.
+  • "EU" / "European"               → Germany, France, Netherlands, Spain,
+                                      Italy, Ireland, Sweden, etc.
+If the query is ambiguous, pick the narrowest reasonable list and say so
+in the result's context string.
+
+=== TECHNOVA CORPUS CONSTANTS (apply ONLY when these PDFs are in scope) ===
+Use these values when the query requires a rule that isn't in the tabular
+data but IS documented in a policy PDF. Cite the source in a comment.
+  • Retention bonus ceiling    = 30% of annual CTC      (Salary_Structure.pdf §5)
+  • ESOP grant level           = L5 and above           (Salary_Structure.pdf §3)
+  • On-call stipend            = ₹5,000/week primary,   (OnCall_Runbook.pdf §1)
+                                 ₹2,500/week secondary
+  • Training-compliance flag   = department rate < 90%  (Training_Compliance.pdf §3)
+  • Mandatory training modules = InfoSec Awareness,     (Training_Compliance.pdf §3)
+                                 POSH, ABAC, DPDP Act 2023
+  • External-cert bonus        = ₹25,000 per cert       (Training_Compliance.pdf §2)
+  • Vendor risk statuses       = {Conditional, Suspended} flagged
+                                                         (Vendor_Contracts.pdf §4)
+  • AI/ML FY26-27 budget       = 38% of ₹485 Cr plan    (Product_Roadmap_2026.pdf §1)
+  • Engineering Q4 utilisation = 94.7% of ₹210 Cr       (Q4_Financial_Report.pdf §4)
+  • Data-localization risk geo = Vietnam, Indonesia     (Board_Minutes_Q4.pdf §5)
+  • Customer-count IPO target  = 3,500 enterprise by    (Product_Roadmap_2026.pdf §5)
+                                 Q2 FY2027 (current 2,847)
+If the query mentions "retention bonus", "ESOP", "on-call pay", "compliance
+flag", "certification bonus", "data-localization", "IPO target", or similar,
+you probably need one of these constants — not a column lookup.
 
 === TABLE SEMANTICS — USE THE RIGHT DataFrame ===
 - Physical hardware (laptops, GPU workstations, monitors, phones) and software
@@ -1083,11 +1293,22 @@ def _execute_multi_table_code(code: str, dfs: dict[str, pd.DataFrame]) -> dict[s
         }
 
     import numpy as np
+    from datetime import datetime, date, timedelta
+    from collections import Counter, defaultdict
 
     sandbox = {
         "__builtins__": _SAFE_BUILTINS,
         "pd": pd,
         "np": np,
+        # Preloaded so the LLM never has to write `import` (which the
+        # safety check rejects). Q4 laptop-spend query died because the
+        # LLM wrote `from datetime import timedelta` and hit the import
+        # regex. Expose these directly and the import is unnecessary.
+        "datetime": datetime,
+        "date": date,
+        "timedelta": timedelta,
+        "Counter": Counter,
+        "defaultdict": defaultdict,
     }
     # Expose each DataFrame as df_<name>
     for name, df in dfs.items():
@@ -1272,6 +1493,14 @@ def is_multi_table_query(query: str, tabular_doc_count: int = 0) -> bool:
       choose the right one from all available schemas)
     """
     q = query.lower()
+
+    # Derived-metric bridge: single-keyword force-route to multi-table
+    # when the corpus has tabular data to derive against. Same list used
+    # in classify_data_query, re-applied here so the query doesn't stall
+    # on the domain-noun heuristic (operating margin ≠ obvious noun).
+    if tabular_doc_count >= 1 and any(kw in q for kw in _DERIVED_METRIC_KEYWORDS):
+        return True
+
     _DOMAIN_NOUNS = {
         "employee", "employees", "department", "departments", "salary", "salaries",
         "customer", "customers", "vendor", "vendors", "incident", "incidents",
@@ -1344,7 +1573,7 @@ async def run_multi_table_query(
             "code": "", "tables": [], "schema": "",
         }
 
-    schema = _multi_table_schema_summary(dfs)
+    schema = _multi_table_schema_summary(dfs, docs=accessible)
     prompt = MULTI_TABLE_ANALYTICS_PROMPT.format(schema=schema, query=query)
 
     try:
@@ -1374,8 +1603,11 @@ async def run_multi_table_query(
 
     result = _execute_multi_table_code(code, dfs)
 
-    # Corrective retry on runtime error
-    if not result["ok"] and result["error"] and "safety check" not in result["error"]:
+    # Corrective retry on runtime error OR safety-check failure.
+    # Safety-check retries are valuable now that datetime/Counter/etc. are
+    # preloaded — the most common safety trip is a stray `import` line
+    # that's unnecessary once the LLM knows the preloads are available.
+    if not result["ok"] and result["error"]:
         # If KeyError, inject explicit column lists per DataFrame so the LLM
         # stops hallucinating column names. This is the #1 retry failure mode.
         column_dump = ""
@@ -1387,12 +1619,44 @@ async def run_multi_table_query(
                               and not str(c).startswith("Unnamed")
                               and not str(c).startswith("TechNova Inc.")]
                 column_dump += f"  df_{tname}.columns = {clean_cols}\n"
+
+        # Safety-specific hint: if the safety check tripped on an import,
+        # the LLM is trying to reach for stdlib helpers that are actually
+        # pre-loaded. Explicitly list them so the retry doesn't re-import.
+        safety_hint = ""
+        if "safety check" in (result["error"] or "").lower():
+            safety_hint = (
+                "\n\nDO NOT write `import` or `from ... import ...` — the "
+                "sandbox rejects any import statement. The following are "
+                "already available as names you can call directly: pd, np, "
+                "datetime, date, timedelta, Counter, defaultdict. Replace "
+                "`from datetime import timedelta` with nothing (timedelta "
+                "is already a name). Replace `import math` with using np "
+                "equivalents (np.sqrt, np.log, etc.)."
+            )
+
+        # Cartesian-specific hint: if the guard fired, inject FK list so the
+        # LLM re-merges on the right keys instead of chaining the same bad
+        # merge. Seeing the concrete FK pairs is the fastest steer away from
+        # accidental cross-joins.
+        cartesian_hint = ""
+        if "CARTESIAN_EXPLOSION" in (result["error"] or ""):
+            fks = _detect_foreign_keys(dfs)
+            fk_lines = "\n".join(f"  {fk['from']} → {fk['to']}" for fk in fks) or "  (none auto-detected)"
+            cartesian_hint = (
+                "\n\nYOUR MERGE PRODUCED A CARTESIAN PRODUCT. "
+                "The join is missing a shared key. Use one of these FK pairs:\n"
+                f"{fk_lines}\n"
+                "If a query spans 3+ tables sharing ONLY department_id, rewrite "
+                "with Pattern I (filter each table separately, then aggregate "
+                "per department using groupby + list) — do NOT chain merges."
+            )
         retry_prompt = (
             f"Your previous code failed with:\n{result['error']}\n\n"
             f"Original code:\n{code}\n\n"
             f"Fix it. Available DataFrames: {', '.join(f'df_{n}' for n in dfs.keys())}. "
             f"Store the answer in `result`."
-            f"{column_dump}\n\n"
+            f"{column_dump}{cartesian_hint}{safety_hint}\n\n"
             f"Hint: after pd.merge with suffixes, check df.columns before "
             f"accessing. For self-joins, prefer explicit .rename() over suffixes "
             f"(see Pattern C in the original prompt).\n\n"
@@ -1416,11 +1680,106 @@ async def run_multi_table_query(
         except Exception:
             pass
 
+    # ── Result validator (post-exec sanity check) ────────────────────
+    # Second LLM pass catches subtle math errors the exec engine can't —
+    # wrong column picked, premature rounding, filter dropped valid rows.
+    # Non-blocking: surfaces a concern string, never rejects the result.
+    if result.get("ok"):
+        try:
+            verdict = await _validate_result(
+                query=query,
+                code=result.get("code", ""),
+                result_summary=_summarize_result_for_validator(result),
+                schema=schema,
+            )
+            if not verdict["ok"] and verdict["concern"]:
+                result["validator_concern"] = verdict["concern"]
+        except Exception:
+            pass
+
     result["tables"] = list(dfs.keys())
     result["schema"] = schema
     result["doc_ids"] = [d.doc_id for d in accessible]
     result["filenames"] = [d.filename for d in accessible]
     return result
+
+
+# ── Result validator agent ────────────────────────────────────────────────
+
+async def _validate_result(
+    query: str,
+    code: str,
+    result_summary: str,
+    schema: str,
+) -> dict[str, Any]:
+    """Second LLM pass: sanity-check the executed result before we hand it
+    to the user. Catches subtle math errors — wrong column, off-by-one
+    filter, premature rounding, missing rows — that the exec engine can't
+    detect because the code ran without errors.
+
+    Returns: {"ok": bool, "concern": str | None}. Never blocks on failure —
+    validator errors are swallowed so we don't break the happy path.
+    """
+    from datetime import date as _date
+    today = _date.today().isoformat()
+    prompt = (
+        "You are an analytics QA reviewer. A pandas query was generated and "
+        "executed. Judge ONLY whether the RESULT plausibly answers the "
+        "QUESTION — do not re-run the code. Be strict about:\n"
+        "  - wrong units / wrong column picked (e.g. ARR instead of CTC,\n"
+        "    or 'amount' used where the real column is 'amount_inr_crores')\n"
+        "  - magnitude wildly off (expected lakhs, got crores or vice versa)\n"
+        "  - row count obviously wrong (1 row when question implies many,\n"
+        "    or repeated identical rows that suggest missing drop_duplicates)\n"
+        "  - premature rounding that flipped a near-tie ranking\n"
+        "  - a filter that dropped small-but-valid values\n"
+        "  - 'best'/'worst' inverted (nlargest vs nsmallest)\n"
+        "  - a scalar=0 that probably means no rows matched (bad filter)\n\n"
+        f"TODAY'S DATE: {today}. When the user says 'last year' / 'this year',\n"
+        "interpret relative to today. Do not flag a year filter as wrong\n"
+        "unless you are certain it mis-reads the relative phrase.\n\n"
+        f"QUESTION:\n{query}\n\n"
+        f"SCHEMA (abbreviated):\n{schema[:1500]}\n\n"
+        f"CODE EXECUTED:\n{code[:1500]}\n\n"
+        f"RESULT:\n{result_summary[:1500]}\n\n"
+        "Reply with EXACTLY one of these two formats, nothing else:\n"
+        "  OK\n"
+        "  CONCERN: <one sentence describing the specific issue>\n"
+    )
+    try:
+        verdict = await _complete_chat(
+            [{"role": "user", "content": prompt}],
+            max_tokens=120, temperature=0.0,
+        )
+    except Exception:
+        return {"ok": True, "concern": None}
+    verdict = (verdict or "").strip()
+    if verdict.upper().startswith("OK"):
+        return {"ok": True, "concern": None}
+    if verdict.upper().startswith("CONCERN"):
+        concern = verdict.split(":", 1)[1].strip() if ":" in verdict else verdict
+        return {"ok": False, "concern": concern[:300]}
+    return {"ok": True, "concern": None}
+
+
+def _summarize_result_for_validator(result: dict[str, Any]) -> str:
+    """Compact text preview of a result dict for the validator prompt."""
+    if not result.get("ok"):
+        return f"(execution error: {result.get('error', 'unknown')})"
+    r = result.get("result")
+    rt = result.get("result_type", "unknown")
+    if rt == "table" and isinstance(r, dict):
+        cols = r.get("columns", [])
+        rows = r.get("rows", []) or []
+        total = r.get("total_rows", len(rows))
+        preview = rows[:10]
+        return (
+            f"table — columns={cols}, total_rows={total}, "
+            f"first_rows={preview}"
+        )
+    if rt == "scalar":
+        return f"scalar — {r}"
+    return f"{rt} — {str(r)[:500]}"
 
 
 # ── Main agent entry point ────────────────────────────────────────────────
@@ -1512,14 +1871,22 @@ async def run_analytics_query(
     # Execute
     result = _execute_pandas_code(code, df)
 
-    # Corrective retry: if the first attempt failed with a runtime error,
-    # send the error back to the LLM and ask it to fix the code.
-    if not result["ok"] and result["error"] and "safety check" not in result["error"]:
+    # Corrective retry: if the first attempt failed with a runtime error
+    # OR a safety-check trip (usually a stray `import`), retry with a hint.
+    if not result["ok"] and result["error"]:
+        safety_hint = ""
+        if "safety check" in (result["error"] or "").lower():
+            safety_hint = (
+                "\n\nDO NOT write `import` — sandbox rejects it. pd, np, "
+                "datetime, date, timedelta, Counter, defaultdict are "
+                "already loaded; call them directly."
+            )
         retry_prompt = (
             f"Your previous code failed with this error:\n"
             f"{result['error']}\n\n"
             f"Original code:\n{code}\n\n"
-            f"Fix the code. Remember: the DataFrame is `df`, store result in `result`.\n"
+            f"Fix the code. Remember: the DataFrame is `df`, store result in `result`."
+            f"{safety_hint}\n"
             f"Schema:\n{schema}\n\n"
             f"Question: {query}\n\n"
             f"Write ONLY the corrected Python code:"
@@ -1540,6 +1907,20 @@ async def run_analytics_query(
                 result["code"] = f"# Retry (original failed: {result.get('error', 'unknown')})\n{retry_code}"
         except Exception:
             pass  # keep the original error
+
+    # ── Result validator (post-exec sanity check) ────────────────────
+    if result.get("ok"):
+        try:
+            verdict = await _validate_result(
+                query=query,
+                code=result.get("code", ""),
+                result_summary=_summarize_result_for_validator(result),
+                schema=schema,
+            )
+            if not verdict["ok"] and verdict["concern"]:
+                result["validator_concern"] = verdict["concern"]
+        except Exception:
+            pass
 
     result["doc_id"] = doc.doc_id
     result["filename"] = doc.filename

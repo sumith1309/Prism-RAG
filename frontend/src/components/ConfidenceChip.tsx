@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { AlertTriangle, CheckCircle2, ShieldCheck, Sparkles, Zap } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Info, ShieldCheck, Sparkles, Zap } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -16,10 +16,34 @@ import { cn } from "@/lib/utils";
 export function ConfidenceChip({
   value,
   onBroaden,
+  isAbstention,
 }: {
   value: number;
   onBroaden?: () => void;
+  isAbstention?: boolean;
 }) {
+  // Faithful abstention: the answer says "not in the docs". Show a distinct
+  // "Not in corpus" chip instead of "Low confidence" — accurate abstention
+  // isn't low quality, and Broaden won't help.
+  if (isAbstention) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.2 }}
+        className="inline-flex items-center gap-2 rounded-full border border-fg-subtle/30 bg-bg-elevated pl-1 pr-2.5 py-[3px]"
+        title="The retrieved documents don't contain information to answer this question. The system correctly abstained — re-running won't help."
+      >
+        <span className="w-5 h-5 rounded-full bg-fg-subtle/15 flex items-center justify-center">
+          <Info className="w-3 h-3 text-fg-muted" strokeWidth={2.25} />
+        </span>
+        <span className="text-[11px] font-semibold leading-none text-fg-muted">
+          Not in corpus
+        </span>
+      </motion.div>
+    );
+  }
+
   const band = getBand(value);
   const canBroaden = value < 60 && !!onBroaden;
 

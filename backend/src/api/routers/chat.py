@@ -1723,14 +1723,66 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
         # completed DPDP training?" have no aggregation keywords but clearly
         # need a cross-file JOIN, not a RAG document search.
         _tabular_count = len(_list_tabular(max_doc_level=user.level))
-        if _is_multi_table(req.query, _tabular_count):
+
+        # ── Analytics follow-up detection ──────────────────────────────
+        # When the previous assistant turn in this thread was analytics
+        # AND the current query looks like a modification ("simpler",
+        # "as a chart", "without truncation", "top 5 only", etc.),
+        # combine the previous user query with the modification so the
+        # analytics agent has the entity context. Otherwise the router
+        # sees a short modification-only query, finds no domain nouns,
+        # and mis-routes to grounded RAG which returns "not in docs".
+        _is_analytics_followup = False
+        _combined_query = req.query
+        if thread_id:
+            try:
+                _prev_turns = models.list_turns(thread_id)
+                # Find the last assistant turn (before the current user turn)
+                _last_assistant = None
+                _last_user = None
+                for t in reversed(_prev_turns):
+                    if t.role == "assistant" and _last_assistant is None:
+                        _last_assistant = t
+                    elif t.role == "user" and _last_user is None and _last_assistant is not None:
+                        # The user turn immediately before the last assistant
+                        _last_user = t
+                        break
+                if (_last_assistant is not None
+                        and (_last_assistant.answer_mode or "") == "analytics"
+                        and _last_user is not None):
+                    q_words = req.query.lower().split()
+                    is_short = len(q_words) < 14
+                    _MOD_MARKERS = {
+                        "simpler", "simplify", "shorter", "fewer", "only",
+                        "just", "truncat", "untruncated", "without truncat",
+                        "no truncat", "chart", "graph", "plot", "pie", "bar",
+                        "sort by", "top", "bottom", "rank", "limit",
+                        "column", "row", "table", "list", "single",
+                        "as a", "in a", "show in", "display",
+                        "more detail", "summary", "summarize", "aggregate",
+                        "group by", "breakdown", "percentage", "%",
+                        "instead", "with just", "just the", "only the",
+                    }
+                    ql = req.query.lower()
+                    has_mod = any(m in ql for m in _MOD_MARKERS)
+                    if is_short and has_mod:
+                        _is_analytics_followup = True
+                        _combined_query = (
+                            f"{_last_user.content.strip()}\n\n"
+                            f"Apply this modification to the previous analytics: "
+                            f"{req.query.strip()}"
+                        )
+            except Exception:
+                pass  # best-effort follow-up detection
+
+        if _is_analytics_followup or _is_multi_table(req.query, _tabular_count):
             _multi_docs = await _find_analytics_docs(
-                req.query, req.doc_ids or None, user.level, user.role
+                _combined_query, req.doc_ids or None, user.level, user.role
             )
             if len(_multi_docs) >= 2:
                 t_analytics = time.perf_counter()
                 _mt_result = await _run_multi_analytics(
-                    req.query, _multi_docs, user.level
+                    _combined_query, _multi_docs, user.level
                 )
                 analytics_ms = int((time.perf_counter() - t_analytics) * 1000)
                 # Commit to multi-table: if it ran (even with an error),

@@ -30,6 +30,28 @@ import { RetrievalTrace } from "./RetrievalTrace";
 import { SourceCitationCard } from "./SourceCitationCard";
 import { WelcomeCard } from "./WelcomeCard";
 
+// Detect faithful abstentions ("not in the provided documents...") so we
+// can hide the "Broaden" button — re-running multi-query won't find
+// information that genuinely isn't in the corpus.
+function isFaithfulAbstention(content: string): boolean {
+  if (!content) return false;
+  const firstLine = content.trim().slice(0, 260).toLowerCase();
+  const patterns = [
+    "do not specify",
+    "does not specify",
+    "not available in",
+    "not in the provided",
+    "do not contain",
+    "not found in",
+    "could not find this in",
+    "this information is not",
+    "is not covered in",
+    "no information in",
+    "is not available",
+  ];
+  return patterns.some((p) => firstLine.includes(p));
+}
+
 export function MessageBubble({
   message,
   precedingUserQuery,
@@ -278,8 +300,13 @@ export function MessageBubble({
                 {typeof message.confidence === "number" && (
                   <ConfidenceChip
                     value={message.confidence}
+                    isAbstention={isFaithfulAbstention(message.content)}
                     onBroaden={
-                      message.confidence < 60
+                      // Don't offer "Broaden" on faithful abstentions —
+                      // the docs genuinely don't cover the question.
+                      // Re-running with multi-query won't find what isn't there.
+                      message.confidence < 60 &&
+                      !isFaithfulAbstention(message.content)
                         ? () => onBroaden?.(message.id)
                         : undefined
                     }

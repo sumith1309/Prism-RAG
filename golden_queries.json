@@ -1,0 +1,336 @@
+{
+  "description": "Golden-query regression harness. 20 queries total: 5 Saturday anchors + 8 from sir's verified 10-query set + 7 new edges (2 expected-fails that showcase Phase 3's future capabilities).",
+  "version": "2.0",
+  "created": "2026-04-22",
+  "corpus": "TechNova — 11 relational tables + 11 policy PDFs",
+  "buckets": {
+    "anchor": "The five Saturday stress-test queries. Must stay green across every Phase 3/4/etc. change.",
+    "sir": "From sir's verified 10-query set in 00_README_and_Schema.xlsx. Ground truth manually computed by sir.",
+    "edge": "New stretch tests. Two are expected-fail today (marked expected_current='fail') to measure Phase 3 improvements."
+  },
+  "tolerances": {
+    "strict_scalar_abs": 0.0,
+    "strict_scalar_pct": 0.0,
+    "near_miss_abs_pct": 2.0,
+    "near_miss_row_delta": 1
+  },
+  "queries": [
+    {
+      "id": "Q1",
+      "bucket": "anchor",
+      "label": "Critical services + behind-training + flagged vendors",
+      "query": "Show me critical services where the owning team is behind on mandatory training and uses any flagged vendors. Include the training gap and the vendor names.",
+      "expected": {
+        "total_rows": {"value": 22, "tolerance_abs": 0},
+        "must_contain_strings_any_cell": [
+          "Nova Platform (Core)", "analytics-svc-01", "data-svc-07",
+          "NVIDIA (DGX)", "VendorConnect Solutions", "Engineering"
+        ]
+      },
+      "source": "SOLUTIONS §1"
+    },
+    {
+      "id": "Q2",
+      "bucket": "anchor",
+      "label": "Retention + on-call exposure for serious-incident engineers",
+      "query": "What's our exposure if we wanted to lock in the engineers who handled all our serious incidents last year? Include both retention bonuses and what we paid them for being on-call.",
+      "expected": {
+        "scalar_checks": [
+          {
+            "name": "total_retention_bonus_inr_lakhs",
+            "expected": 96.04,
+            "tolerance_pct": 1.0,
+            "path_hints": ["retention_bonus_inr_lakhs", "retention_bonus", "total_retention"]
+          },
+          {
+            "name": "total_oncall_pay_inr_lakhs",
+            "expected": 5.20,
+            "tolerance_pct": 20.0,
+            "path_hints": ["oncall_pay_inr_lakhs", "oncall_pay", "total_oncall"],
+            "allow_zero_until_phase3": true
+          },
+          {
+            "name": "total_lock_in_exposure_inr_lakhs",
+            "expected": 101.24,
+            "tolerance_pct": 6.0,
+            "path_hints": ["total_lock_in", "lock_in_exposure", "combined_exposure"]
+          }
+        ],
+        "must_contain_strings_any_cell": ["Engineering", "Information Security"]
+      },
+      "source": "SOLUTIONS §2"
+    },
+    {
+      "id": "Q3",
+      "bucket": "anchor",
+      "label": "IPO-risk Asian customers w/o ESOPs + no certs",
+      "query": "We're heading into IPO. Which of our biggest accounts in regulated Asian markets are being managed by people who don't have ESOPs and haven't bothered with any certifications?",
+      "expected": {
+        "total_rows": {"value": 2, "tolerance_abs": 0},
+        "must_contain_strings_any_cell": [
+          "Crescent Media", "Atlas Telecom", "Rohit", "Kiran",
+          "Japan", "India", "Tier 1", "L4"
+        ],
+        "must_not_contain_strings": ["Tier 2", "Tier 3", "L5", "L6", "L7", "L8"]
+      },
+      "source": "SOLUTIONS §3"
+    },
+    {
+      "id": "Q4",
+      "bucket": "anchor",
+      "label": "Laptop spend vs Engineering Q4 budget",
+      "query": "Does our actual laptop spend on senior engineering staff line up with what's in Engineering's reported Q4 budget? Where's the gap, if any?",
+      "expected": {
+        "scalar_checks": [
+          {
+            "name": "senior_engineering_count",
+            "expected": 9,
+            "tolerance_abs": 3,
+            "path_hints": ["employee_count", "senior_engineering", "headcount", "staff_count"]
+          },
+          {
+            "name": "direct_laptop_spend_inr_crores",
+            "expected": 0.241,
+            "tolerance_pct": 20.0,
+            "path_hints": ["actual_laptop_spend_inr_crores", "laptop_spend_inr_crores"]
+          },
+          {
+            "name": "engineering_q4_actual_inr_crores",
+            "expected": 198.87,
+            "tolerance_pct": 0.5,
+            "path_hints": ["reported_q4_actual_spend_inr_crores", "engineering_q4_actual"]
+          }
+        ],
+        "must_contain_strings_any_cell": ["Engineering"]
+      },
+      "source": "SOLUTIONS §4"
+    },
+    {
+      "id": "Q5",
+      "bucket": "anchor",
+      "label": "Data-localization revenue + AI infra readiness",
+      "query": "We're scaling AI investment heavily next year — how much revenue do we have sitting in markets where data localization could blow up on us, and is our AI infrastructure even set up to handle that?",
+      "expected": {
+        "scalar_checks": [
+          {
+            "name": "customers_in_risk_markets",
+            "expected": 9,
+            "tolerance_abs": 0,
+            "path_hints": ["customer_count", "customers_in_risk", "risk_market_customers"]
+          },
+          {
+            "name": "risk_market_arr_inr_lakhs",
+            "expected": 2957.81,
+            "tolerance_pct": 0.5,
+            "path_hints": ["arr_inr_lakhs", "revenue_at_risk", "revenue_exposure"]
+          },
+          {
+            "name": "ai_cluster_gpus",
+            "expected": 128,
+            "tolerance_abs": 0,
+            "path_hints": ["total_gpus", "ai_cluster_total_gpus", "gpus"],
+            "allow_missing_until_phase3": true
+          }
+        ],
+        "must_contain_strings_any_cell": ["Vietnam", "Indonesia"],
+        "must_not_contain_strings": ["Thailand", "Philippines", "Malaysia", "Singapore"]
+      },
+      "source": "SOLUTIONS §5"
+    },
+
+    {
+      "id": "S1",
+      "bucket": "sir",
+      "label": "Tier-1 APAC customers + AM has not completed DPDP training",
+      "query": "Which Tier-1 APAC customers are managed by account managers who haven't completed DPDP Act 2023 training?",
+      "expected": {
+        "must_contain_strings_any_cell": ["Crescent Media", "Ascend Logistics", "Rohit", "Jain"],
+        "must_not_contain_strings": ["Tier 2", "Tier 3"]
+      },
+      "source": "Sir's README Q1 — ground truth: Crescent Media + Ascend Logistics (both Rohit Jain)"
+    },
+    {
+      "id": "S3",
+      "bucket": "sir",
+      "label": "SEV-1/SEV-2 incidents in AI Research + reporter CTC",
+      "query": "Show me all SEV-1 and SEV-2 incidents reported by employees in the Data & AI Research department, with each reporter's name and total CTC.",
+      "expected": {
+        "total_rows": {"value": 5, "tolerance_abs": 1},
+        "must_contain_strings_any_cell": ["Meera Das", "Shruti Pillai", "Sneha Reddy", "Vikram Kapoor"],
+        "must_not_contain_strings": ["SEV-3", "SEV-4"]
+      },
+      "source": "Sir's README Q3 — ground truth: 5 incidents across those reporters"
+    },
+    {
+      "id": "S4",
+      "bucket": "sir",
+      "label": "L5+ with Apple laptops AND unresolved training",
+      "query": "Which L5+ employees have Apple laptops assigned AND have unresolved mandatory training?",
+      "expected": {
+        "total_rows": {"value": 6, "tolerance_abs": 2},
+        "must_contain_strings_any_cell": ["L5"],
+        "must_not_contain_strings": ["L1", "L2", "L3", "L4"]
+      },
+      "source": "Sir's README Q4 — ground truth: 6 employees"
+    },
+    {
+      "id": "S5",
+      "bucket": "sir",
+      "label": "Departments ranked by remediation_cost / quarterly_budget",
+      "query": "Rank departments by the ratio of total remediation cost to their quarterly budget.",
+      "expected": {
+        "scalar_checks": [
+          {
+            "name": "top_ratio_engineering",
+            "expected": 14.32,
+            "tolerance_pct": 10.0,
+            "path_hints": ["ratio", "remediation_ratio", "cost_to_budget"]
+          }
+        ],
+        "must_contain_strings_any_cell": ["Engineering"]
+      },
+      "source": "Sir's README Q5 — ground truth: Engineering ~14.32"
+    },
+    {
+      "id": "S6",
+      "bucket": "sir",
+      "label": "Flagged vendors linked to assets",
+      "query": "Show me vendors with Conditional or Suspended risk status that are linked to any assets.",
+      "expected": {
+        "must_contain_strings_any_cell": ["NVIDIA", "VendorConnect"],
+        "must_not_contain_strings": ["Passed"]
+      },
+      "source": "Sir's README Q6 — ground truth: NVIDIA (DGX), VendorConnect Solutions"
+    },
+    {
+      "id": "S7",
+      "bucket": "sir",
+      "label": "Top 10 customers by ARR + AM + manager's manager",
+      "query": "Give me the top 10 customers by ARR including their account manager's name and the name of their account manager's manager.",
+      "expected": {
+        "total_rows": {"value": 10, "tolerance_abs": 0},
+        "must_contain_strings_any_cell": ["arr", "manager"]
+      },
+      "source": "Sir's README Q7 — ground truth: 10 rows with self-join manager chain"
+    },
+    {
+      "id": "S9",
+      "bucket": "sir",
+      "label": "Critical services with >2 incidents",
+      "query": "Which critical services have had more than two incidents? Include the owning department.",
+      "expected": {
+        "must_contain_strings_any_cell": ["data-svc-26", "Engineering"],
+        "must_not_contain_strings": []
+      },
+      "source": "Sir's README Q9 — ground truth: data-svc-26 (Engineering)"
+    },
+    {
+      "id": "S2",
+      "bucket": "sir",
+      "label": "Vendor spend per department, by vendor category",
+      "query": "How much did each department spend on each vendor category last fiscal year?",
+      "expected": {
+        "must_contain_strings_any_cell": ["Engineering", "Cloud"]
+      },
+      "source": "Sir's README Q2 — ground truth: Engineering/Cloud ~228 Cr (category/period specifics vary). Use as structural test only."
+    },
+
+    {
+      "id": "E1",
+      "bucket": "edge",
+      "label": "NOT condition — departments without critical services",
+      "query": "Which departments don't have any services classified as Critical in the products catalog?",
+      "expected": {
+        "must_not_contain_strings": ["Engineering"],
+        "notes": "Engineering owns the vast majority of critical services, so it MUST NOT appear. Other departments may or may not — anti-join should produce a small set."
+      },
+      "source": "New edge — tests anti-join pattern (Pattern E)"
+    },
+    {
+      "id": "E2",
+      "bucket": "edge",
+      "label": "Self-join — managers with biggest teams",
+      "query": "Which managers have the largest direct-report headcount? Show the top 5 with their team size.",
+      "expected": {
+        "total_rows": {"value": 5, "tolerance_abs": 1},
+        "must_contain_strings_any_cell": ["first_name", "last_name"]
+      },
+      "source": "New edge — tests self-join on manager_employee_id + groupby aggregation"
+    },
+    {
+      "id": "E3",
+      "bucket": "edge",
+      "label": "4-way chain — ESOP value for L5+ in flagged-vendor departments",
+      "query": "What's the total ESOP value at INR 842/share FMV for all L5+ employees whose department owns any flagged vendor?",
+      "expected": {
+        "scalar_checks": [
+          {
+            "name": "total_esop_value_inr",
+            "expected": 100000000,
+            "tolerance_pct": 100.0,
+            "path_hints": ["esop_value", "total_esop", "esop_inr"],
+            "notes": "Very loose tolerance — structural test; exact value requires pulling sir's ground-truth separately"
+          }
+        ],
+        "must_contain_strings_any_cell": ["Engineering"]
+      },
+      "source": "New edge — tests salary_records × employees × departments × vendors"
+    },
+    {
+      "id": "E4",
+      "bucket": "edge",
+      "label": "Worst compliance department — aggregate vs per-module",
+      "query": "Which department has the worst mandatory-training compliance, and what's their completion rate?",
+      "expected": {
+        "must_contain_strings_any_cell": ["Engineering"],
+        "notes": "Engineering's aggregate rate is ~87% (below 90%). Other departments may also be below. Structural test — any Engineering + rate < 0.90 counts as pass."
+      },
+      "source": "New edge — probes Pattern H (total-over-total rate, not mean-of-means)"
+    },
+    {
+      "id": "E5",
+      "bucket": "edge",
+      "label": "Best ARR-to-CTC account manager",
+      "query": "Who is the best account manager in terms of ARR managed divided by their own total CTC?",
+      "expected": {
+        "must_contain_strings_any_cell": ["Rohit", "Jain"],
+        "notes": "Ground truth: Rohit Jain, ratio ~258.38 (ARR 5834.29 / CTC 22.58). Tests Pattern G: aggregate-then-rank."
+      },
+      "source": "Verified post-fix query from sir's additional tests"
+    },
+    {
+      "id": "E6",
+      "bucket": "edge",
+      "label": "Expected-fail — derived metric: revenue per engineer",
+      "query": "What's the revenue per engineer in each department? Rank departments by this metric.",
+      "expected_current": "fail",
+      "expected": {
+        "scalar_checks": [
+          {
+            "name": "engineering_revenue_per_engineer_inr_lakhs",
+            "expected": 180.0,
+            "tolerance_pct": 20.0,
+            "path_hints": ["revenue_per_engineer", "arr_per_employee", "arr_per_engineer", "ratio"],
+            "notes": "Engineering owns ~all customers (all AMs are in Sales, but 'engineers' = technical staff). The SOLUTIONS-equivalent derivation: sum customers.arr_inr_lakhs / count of dept tech headcount. Ground-truth estimate: total ARR ~16000 L / ~90 tech staff ≈ 180 L/engineer. Loose tolerance."
+          }
+        ],
+        "must_contain_strings_any_cell": ["Engineering"],
+        "must_not_contain_strings": ["Sales & Marketing"],
+        "notes": "Pass requires the derived metric to be computed AND Engineering to be identified as a technical dept. Current one-shot code-gen typically: (a) uses financial_transactions.amount as revenue (wrong — that's spend, not revenue), (b) counts all employees not just engineers, (c) lumps Sales AMs as 'engineers'. Phase 3 planner should decompose: 'numerator = sum customers.arr where AM dept is in tech depts; denominator = count employees in tech depts'."
+      },
+      "source": "New edge — EXPECTED-FAIL today, measures Phase 3 derived-metric capability"
+    },
+    {
+      "id": "E7",
+      "bucket": "edge",
+      "label": "Expected-fail — temporal filter with no direct column",
+      "query": "Show me revenue churn in the last 90 days. Which customers reduced their licensed seats?",
+      "expected_current": "fail",
+      "expected": {
+        "must_contain_strings_any_cell": ["not available", "no temporal", "snapshot only", "no historical", "cannot compute", "missing data"],
+        "notes": "Pass requires the system to RECOGNIZE that the corpus has no time-series of licensed_seats — only a current snapshot. Expected answer: an honest 'cannot compute — corpus has point-in-time data only'. Current one-shot code-gen either hallucinates a date column (fails silently with 0 rows) or invents a fake proxy. Phase 3 planner must DETECT missing data dimension at the plan stage and surface it instead of proceeding to broken code."
+      },
+      "source": "New edge — EXPECTED-FAIL today, measures Phase 3 'recognize missing data dimension' capability"
+    }
+  ]
+}

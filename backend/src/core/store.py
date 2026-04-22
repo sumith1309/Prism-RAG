@@ -28,6 +28,32 @@ class Document(SQLModel, table=True):
     disabled_for_roles: str = ""
 
 
+class CorpusFact(SQLModel, table=True):
+    """Policy/quantitative rule extracted from an uploaded document.
+
+    Populated by `fact_extractor.extract_facts()` after a PDF/DOCX is
+    ingested. The analytics agent retrieves these at query time to
+    ground business-term filters in the ACTUAL corpus instead of a
+    hardcoded block — so "30% retention cap" flows from Salary_Structure.pdf
+    when sir uploads his TechNova dataset, and a totally different set of
+    constants flows from a hospital or retail corpus.
+
+    RBAC: inherits the parent doc's `doc_level` at retrieval time — we
+    don't duplicate it here. A caller who can see the document can see
+    every fact derived from it.
+    """
+    fact_id: str = Field(primary_key=True)
+    doc_id: str = Field(index=True)           # FK to document.doc_id
+    filename: str = ""
+    section: str = ""                         # e.g. "§3", "Step 2", ""
+    statement: str = ""                       # full sentence / paraphrase
+    keywords: str = ""                        # comma-separated lower-case tokens
+    quantity: Optional[float] = None          # numeric part if any
+    unit: str = ""                            # "%", "INR_lakhs", "weeks", ...
+    kind: str = ""                            # "threshold" | "cap" | "rate" | "policy"
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 _engine = None
 
 
@@ -198,3 +224,51 @@ def doc_is_visible_to(doc: Document, role: str, level: int) -> bool:
         return True
     disabled = {r for r in (doc.disabled_for_roles or "").split(",") if r}
     return role not in disabled
+
+
+# ── Corpus facts (extracted policy rules) ────────────────────────────────
+
+def add_corpus_facts(facts: list[CorpusFact]) -> None:
+    """Bulk-insert extracted facts. Uses merge so re-extraction overwrites."""
+    if not facts:
+        return
+    with Session(_get_engine()) as session:
+        for f in facts:
+            session.merge(f)
+        session.commit()
+
+
+def list_corpus_facts(
+    doc_ids: Optional[list[str]] = None,
+    max_doc_level: Optional[int] = None,
+) -> list[CorpusFact]:
+    """Return facts scoped to the caller's visible docs.
+
+    `doc_ids` — if provided, restrict to these documents only.
+    `max_doc_level` — RBAC ceiling; caller's clearance level.
+    """
+    with Session(_get_engine()) as session:
+        stmt = select(CorpusFact)
+        if doc_ids:
+            stmt = stmt.where(CorpusFact.doc_id.in_(doc_ids))
+        facts = list(session.exec(stmt))
+        if max_doc_level is None:
+            return facts
+        # Filter by parent doc_level — batch-lookup to avoid N queries
+        doc_rows = session.exec(
+            select(Document.doc_id, Document.doc_level)
+        ).all()
+        level_map = {d.doc_id: d.doc_level for d in doc_rows}
+        return [f for f in facts if level_map.get(f.doc_id, 1) <= max_doc_level]
+
+
+def delete_corpus_facts_for_doc(doc_id: str) -> int:
+    """Remove all facts derived from a document (e.g. before re-extraction)."""
+    with Session(_get_engine()) as session:
+        rows = list(
+            session.exec(select(CorpusFact).where(CorpusFact.doc_id == doc_id))
+        )
+        for r in rows:
+            session.delete(r)
+        session.commit()
+        return len(rows)

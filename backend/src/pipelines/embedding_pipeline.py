@@ -269,7 +269,54 @@ def ingest_file(
         uploaded_by_role=uploaded_by_role,
     )
     store.add_document(doc)
+
+    # Post-ingest: extract policy facts from the full document text so the
+    # analytics agent can retrieve them at query time. Best-effort — if
+    # extraction fails, ingestion still succeeds; the prompt just falls
+    # back to its hardcoded block (until Phase 4 removes it). We fire the
+    # async call via asyncio.run_coroutine_threadsafe when a loop exists,
+    # otherwise asyncio.run in a fresh loop.
+    try:
+        _run_fact_extraction(
+            doc_id=doc_id,
+            filename=filename,
+            full_text="\n\n".join(r.page_content for r in raw_docs[:40]),
+        )
+    except Exception as exc:
+        # Never block ingestion on a fact-extraction hiccup.
+        print(f"[fact_extractor] non-fatal: {exc}")
+
     return doc
+
+
+def _run_fact_extraction(*, doc_id: str, filename: str, full_text: str) -> None:
+    """Run the async fact extractor and persist results synchronously.
+
+    Called from the request thread that `ingest_file` runs on — we pick
+    whichever event-loop strategy the caller's context allows. Keeps the
+    public signature of `ingest_file` sync-compatible (it was before).
+    """
+    import asyncio
+    from src.pipelines import fact_extractor
+
+    async def _do() -> None:
+        facts = await fact_extractor.extract_facts(
+            text=full_text, doc_id=doc_id, filename=filename
+        )
+        if facts:
+            store.add_corpus_facts(facts)
+            print(f"[fact_extractor] {filename}: saved {len(facts)} facts")
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop and loop.is_running():
+        # Inside an async FastAPI request — schedule on the loop and wait.
+        future = asyncio.run_coroutine_threadsafe(_do(), loop)
+        future.result(timeout=60)
+    else:
+        asyncio.run(_do())
 
 
 def set_doc_level(doc_id: str, new_level: int) -> Optional[store.Document]:

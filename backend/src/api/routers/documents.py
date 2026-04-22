@@ -200,10 +200,86 @@ async def upload_docs(
 async def delete_document(doc_id: str, _user: CurrentUser = Depends(require_level(3))):
     if not delete_doc(doc_id):
         raise HTTPException(status_code=404, detail="document not found")
+    # Also purge any extracted policy facts — orphaned facts would pollute
+    # future analytics retrievals with rules from a deleted document.
+    store.delete_corpus_facts_for_doc(doc_id)
     # Tier 1.2 — bust any cached chat answers that cited this doc so the
     # deletion takes effect on subsequent identical queries.
     chat_cache.bust_for_doc(doc_id)
     return {"ok": True}
+
+
+@router.post("/{doc_id}/extract-facts")
+async def extract_facts_for_doc(
+    doc_id: str, _user: CurrentUser = Depends(require_level(3))
+):
+    """Re-run the policy-fact extractor on an already-uploaded document.
+
+    Useful after upgrading the extractor, or for documents ingested
+    before the extractor was added. Overwrites existing facts for the
+    doc (delete + re-insert). Manager+ (level 3) gated — this is an
+    admin affordance, not a per-user action.
+    """
+    from src.pipelines import fact_extractor
+    from src.pipelines.loaders import load_any
+
+    doc = store.get_document(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="document not found")
+    raw_path = settings.abs(settings.RAW_DIR) / f"{doc_id}{Path(doc.filename).suffix.lower()}"
+    if not raw_path.exists():
+        raise HTTPException(status_code=409, detail="raw file missing on disk")
+    try:
+        raw_docs = load_any(raw_path)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"loader failed: {exc}") from exc
+    text = "\n\n".join(r.page_content for r in raw_docs[:40])
+
+    store.delete_corpus_facts_for_doc(doc_id)
+    facts = await fact_extractor.extract_facts(
+        text=text, doc_id=doc_id, filename=doc.filename
+    )
+    if facts:
+        store.add_corpus_facts(facts)
+    return {"ok": True, "doc_id": doc_id, "facts_extracted": len(facts)}
+
+
+@router.post("/extract-facts-all")
+async def extract_facts_all(_user: CurrentUser = Depends(require_level(4))):
+    """Bulk re-extract policy facts across every visible document.
+
+    Executive-gated. Returns a per-doc summary so sir can see which
+    PDFs produced rules and which were prose-only.
+    """
+    from src.pipelines import fact_extractor
+    from src.pipelines.loaders import load_any
+
+    results = []
+    for doc in store.list_documents():
+        raw_path = settings.abs(settings.RAW_DIR) / f"{doc.doc_id}{Path(doc.filename).suffix.lower()}"
+        if not raw_path.exists():
+            results.append({"doc_id": doc.doc_id, "filename": doc.filename, "status": "missing"})
+            continue
+        try:
+            raw_docs = load_any(raw_path)
+            text = "\n\n".join(r.page_content for r in raw_docs[:40])
+            store.delete_corpus_facts_for_doc(doc.doc_id)
+            facts = await fact_extractor.extract_facts(
+                text=text, doc_id=doc.doc_id, filename=doc.filename
+            )
+            if facts:
+                store.add_corpus_facts(facts)
+            results.append({
+                "doc_id": doc.doc_id, "filename": doc.filename,
+                "status": "ok", "facts_extracted": len(facts),
+            })
+        except Exception as exc:
+            results.append({
+                "doc_id": doc.doc_id, "filename": doc.filename,
+                "status": "error", "error": str(exc)[:200],
+            })
+    total = sum(r.get("facts_extracted", 0) for r in results)
+    return {"ok": True, "docs_processed": len(results), "total_facts": total, "docs": results}
 
 
 _TOGGLABLE_ROLES = {"guest", "employee", "manager"}

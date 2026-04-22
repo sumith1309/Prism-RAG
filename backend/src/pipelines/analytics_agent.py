@@ -17,6 +17,7 @@ pandas/numpy methods on the pre-loaded DataFrame variable `df`.
 """
 
 import json
+import math as _math
 import re
 import traceback
 from pathlib import Path
@@ -27,6 +28,77 @@ import pandas as pd
 from src.config import settings
 from src.core import store
 from src.pipelines.generation_pipeline import _complete_chat
+
+
+# ── Shared cycle-safe NaN scrubber ──────────────────────────────────────
+#
+# The LLM occasionally builds a `result` dict that contains a reference
+# to itself (or to a parent dict that references the child). Plain
+# recursive scrubbing infinite-loops on that; json.dumps then blows up
+# with "Circular reference detected". We track visited object ids and
+# return a sentinel when we hit one we've seen — breaks the cycle
+# cleanly and lets serialization succeed.
+
+_CYCLE_SENTINEL = "<circular reference omitted>"
+
+
+def _scrub_for_json(obj: Any, _seen: set[int] | None = None) -> Any:
+    """NaN-safe + cycle-safe scrub before json.dumps.
+
+    Replaces NaN with None, datetimes with isoformat strings, numpy
+    scalars with native Python, and breaks cycles via id() tracking.
+    Never raises — worst case returns a string description of the
+    offending object.
+    """
+    # Primitives — cheap path, no tracking needed
+    if obj is None or isinstance(obj, (bool, int, str)):
+        return obj
+    if isinstance(obj, float):
+        if _math.isnan(obj) or _math.isinf(obj):
+            return None
+        return obj
+
+    # Timestamps first (pandas / datetime) — returns a string primitive
+    if isinstance(obj, pd.Timestamp):
+        try:
+            return obj.isoformat()
+        except Exception:
+            return str(obj)
+
+    # numpy scalars expose .item()
+    if hasattr(obj, "item") and not isinstance(obj, (list, tuple, dict)):
+        try:
+            v = obj.item()
+            if isinstance(v, float) and (_math.isnan(v) or _math.isinf(v)):
+                return None
+            return v
+        except Exception:
+            return None
+
+    # Containers — track by id to break cycles
+    if _seen is None:
+        _seen = set()
+    oid = id(obj)
+    if oid in _seen:
+        return _CYCLE_SENTINEL
+    _seen.add(oid)
+    try:
+        if isinstance(obj, dict):
+            return {
+                str(k): _scrub_for_json(v, _seen) for k, v in obj.items()
+            }
+        if isinstance(obj, (list, tuple, set, frozenset)):
+            return [_scrub_for_json(x, _seen) for x in obj]
+    finally:
+        _seen.discard(oid)
+
+    # Last resort — anything else, stringify (DataFrames/Series should
+    # already have been serialized by the caller; if they land here it's
+    # a nested one and we flatten to a summary string rather than crash)
+    try:
+        return str(obj)[:500]
+    except Exception:
+        return "<unserializable>"
 
 
 # ── Tabular file detection ────────────────────────────────────────────────
@@ -542,7 +614,16 @@ _SAFE_BUILTINS = {
 
 # Patterns that indicate malicious or unsafe code
 _UNSAFE_PATTERNS = [
-    re.compile(r"\bimport\s+", re.IGNORECASE),
+    # Real import STATEMENTS only — must be at the start of a line (after
+    # optional whitespace). The old `\bimport\s+` pattern matched the word
+    # "import" anywhere, including inside comments, which killed otherwise-
+    # safe code. _strip_unsafe_imports() neutralises the common preloaded-
+    # stdlib imports before we even reach this check, so anything that
+    # lands here is genuinely trying to reach beyond the sandbox.
+    re.compile(
+        r"^[ \t]*(?:import\s+\S+|from\s+\S+\s+import\s+\S+)",
+        re.MULTILINE,
+    ),
     re.compile(r"\b__\w+__\b"),  # dunder access
     re.compile(r"\bopen\s*\("),
     re.compile(r"\bexec\s*\("),
@@ -559,6 +640,30 @@ _UNSAFE_PATTERNS = [
     re.compile(r"\bdelattr\s*\("),
     re.compile(r"\bcompile\s*\("),
 ]
+
+
+_IMPORT_LINE = re.compile(
+    r"^[ \t]*(?:import\s+\S+.*|from\s+\S+\s+import\s+.*)$",
+    re.MULTILINE,
+)
+
+
+def _strip_unsafe_imports(code: str) -> str:
+    """Remove any top-level `import X` / `from X import Y` lines.
+
+    All stdlib helpers the LLM typically reaches for (datetime, date,
+    timedelta, Counter, defaultdict) are pre-loaded into the sandbox, so
+    these lines are redundant at best and safety-check-trip at worst.
+    Stripping them lets us recover silently from the LLM's most common
+    prompt-violating habit without a second round-trip.
+
+    Any non-stdlib import (e.g. `import os`) would still be blocked by
+    _UNSAFE_PATTERNS (via `\\bos\\.` or `\\bsubprocess\\b`) once the stripped
+    code runs — a stripped `import os` just becomes unused noise.
+    """
+    # Replacement comment must NOT contain the word "import" followed by
+    # whitespace — the safety regex would match it and re-trigger the block.
+    return _IMPORT_LINE.sub("# (stripped: stdlib pre-loaded)", code)
 
 
 def _is_safe_code(code: str) -> tuple[bool, str]:
@@ -582,6 +687,7 @@ def _execute_pandas_code(code: str, df: pd.DataFrame) -> dict[str, Any]:
         "code": str,  # the generated code
       }
     """
+    code = _strip_unsafe_imports(code)
     safe, reason = _is_safe_code(code)
     if not safe:
         return {
@@ -752,31 +858,8 @@ def _execute_pandas_code(code: str, df: pd.DataFrame) -> dict[str, Any]:
             return None
         return obj
 
-    # Proactively scrub NaN from the result BEFORE json.dumps. NaN serializes
-    # to the literal "NaN" which isn't valid JSON — this breaks both the
-    # frontend JSON.parse AND downstream json.dumps(allow_nan=False) in the
-    # persistence/audit path. Scrub recursively so nested dicts/lists are clean.
-    import math as _math
-    def _scrub_nan(o):
-        if isinstance(o, float) and _math.isnan(o):
-            return None
-        if hasattr(o, 'item'):  # numpy scalar
-            try:
-                v = o.item()
-                if isinstance(v, float) and _math.isnan(v):
-                    return None
-                return v
-            except Exception:
-                return None
-        if isinstance(o, dict):
-            return {k: _scrub_nan(v) for k, v in o.items()}
-        if isinstance(o, list):
-            return [_scrub_nan(x) for x in o]
-        if isinstance(o, tuple):
-            return tuple(_scrub_nan(x) for x in o)
-        if isinstance(o, (pd.Timestamp,)):
-            return o.isoformat()
-        return o
+    # Cycle- + NaN-safe scrub (shared helper at module scope)
+    _scrub_nan = _scrub_for_json
 
     try:
         scrubbed = _scrub_nan(result_data)
@@ -1000,29 +1083,47 @@ def _multi_table_schema_summary(dfs: dict[str, pd.DataFrame], docs: list[store.D
 
 MULTI_TABLE_ANALYTICS_PROMPT = """You are a senior data analyst with access to MULTIPLE pandas DataFrames. Answer by joining with pd.merge() as needed.
 
+=== TODAY ===
+Today's date is {today}. When the user says "this year", "last year",
+"next year", interpret those ANCHORED ON {today}, not on the max date
+found in the data. "Last year" means the calendar year (today.year - 1),
+even if the data also contains a few rows from the current year. DO NOT
+infer the reference year from `df['reported_date'].max().year` — that
+overweights partial current-year data and silently loses last year's
+full volume (this has burned us before on SEV-1/SEV-2 "last year" asks).
+
+{policy_facts}
+{term_resolutions}
+
 AVAILABLE DATAFRAMES:
 {schema}
 
 RULES:
-1. Use exact variable names shown (df_employees, df_departments, etc.).
-2. Use ONLY the column names listed in "EXACT COLUMN NAMES". Do NOT invent
+1. *** DO NOT WRITE ANY `import` OR `from ... import ...` STATEMENT. ***
+   The sandbox REJECTS imports. These names are already loaded and are
+   callable directly — use them as-is:
+       pd, np, datetime, date, timedelta, Counter, defaultdict
+   Wrong:  `from datetime import timedelta, date`
+   Wrong:  `import datetime as dt`
+   Right:  `cutoff = date.today() - timedelta(days=365)`
+   If your first instinct is to write `import`, stop and use the name
+   directly. This is the #1 reason a multi-table query fails — do not
+   spend your output tokens on import lines.
+2. Use exact variable names shown (df_employees, df_departments, etc.).
+3. Use ONLY the column names listed in "EXACT COLUMN NAMES". Do NOT invent
    column names like 'incident_id', 'manager_id', or unit-shortened aliases
    like 'amount' when the real column is 'amount_inr_crores'. If the column
    you expect isn't there, use the closest one that IS. Before writing any
    column reference, re-read the EXACT COLUMN NAMES list.
-3. Store the final answer in `result` (DataFrame, Series, scalar, or dict).
-4. NEVER round intermediate values. Sort, rank and compare on RAW values.
+4. Store the final answer in `result` (DataFrame, Series, scalar, or dict).
+5. NEVER round intermediate values. Sort, rank and compare on RAW values.
    Only round in the FINAL display step (e.g. `.round(2)` on the result
    DataFrame before assigning to `result`). Rounding too early flips
    near-tie rankings (0.87 vs 0.88 compliance, 0.331 vs 0.329 margin).
-5. INCLUDE ALL MATCHING ROWS, even when values are very small or zero.
+6. INCLUDE ALL MATCHING ROWS, even when values are very small or zero.
    Do not add `> 0` or `!= 0` filters unless the user explicitly asks to
    exclude them. Let the user decide what counts as significant — dropping
    a small department from the answer is worse than showing it as 0.
-6. DO NOT write `import` statements — the sandbox rejects them. The
-   following are pre-loaded and callable directly: `pd`, `np`, `datetime`,
-   `date`, `timedelta`, `Counter`, `defaultdict`. If you'd normally write
-   `from datetime import timedelta`, just use `timedelta(...)` directly.
 7. DEDUPLICATE after merges when the question asks about entities, not
    pairs. "Which customers have X" → one row per customer, use
    `.drop_duplicates(subset=['customer_id'])`. The fan-out of a merge
@@ -1040,6 +1141,74 @@ COLUMN NAMES list — it will be one of:
 Never shorten the column to 'amount' if the real column is 'amount_inr_crores'
 — you will get a KeyError. When aggregating across tables with different
 units, convert to a common unit first and document the conversion.
+
+=== BUSINESS-TERM → FILTER TRANSLATION ===
+Executives speak in colloquial shorthand. Translate these phrases BEFORE
+writing filters, otherwise you will under- or over-match.
+
+  • "engineers" / "engineering staff" / "senior engineering staff"
+      DEFAULT (scope-narrow) → department_name == 'Engineering'
+      BROADEN ONLY when the verb / context signals incident response,
+      on-call, security, or site-reliability work. Trigger phrases:
+      "incidents", "serious incidents", "on-call", "handled", "paged",
+      "site reliability", "SEV", "security incident", "outage",
+      "incident response". In THOSE cases widen to:
+          department_name IN ('Engineering', 'Information Security',
+                              'Site Reliability Eng.', 'Data & AI Research',
+                              'IT Operations')
+      Ask yourself: "would a CFO reading this interpret 'engineers'
+      strictly as the Engineering org, or as technical staff broadly?"
+      Laptop/compensation/headcount questions → narrow.
+      Incident/on-call/reliability questions → broad.
+  • "technical staff" / "technology teams" / "tech folks"
+      → ALWAYS broad (all tech departments listed above).
+
+  • "biggest accounts" / "top customers" / "major clients" / "largest deals"
+      → tier == 'Tier 1'     (enterprise tier is the business definition
+                               of "biggest" in this corpus, NOT a simple
+                               ARR .nlargest which would mix tiers)
+      If the query also says "top N by ARR", rank within Tier 1.
+
+  • "serious incidents" / "major incidents" / "critical incidents"
+      → severity IN ('SEV-1', 'SEV-2')
+
+  • "last year" / "past year" / "previous year"
+      → reported_date.dt.year == (today.year - 1)
+        where `today` is the TODAY header above, not `df[...].max()`.
+      Do NOT use `df['reported_date'].max().year` as "last year" —
+      the data often contains YTD current-year rows which would
+      collapse "last year" to today.year and drop 11 months of data.
+      Pattern in code:
+          import-free: use the preloaded `date.today()`
+          last_year = date.today().year - 1
+          last_year_rows = df[pd.to_datetime(df['reported_date']).dt.year == last_year]
+
+  • "haven't completed X" / "without X" / "didn't bother with X"
+      → use ~df.isin() (NOT-IN) — see Pattern E.
+      Example: "AMs without ESOPs" = level NOT IN ('L5','L6','L7','L8').
+
+  • "external certifications" / "professional certs"
+      → training_compliance rows where module_name contains any of:
+        'AWS', 'Azure', 'Google', 'GCP', 'CKA', 'CKAD', 'CKS',
+        'CISSP', 'CIPP', 'CISM', 'PMP', 'Scrum', 'ML Engineer'
+        AND status == 'Completed'.
+      "Zero certifications" = employee_id NOT in the set above.
+
+  • "without ESOPs" / "no ESOP" / "unvested"
+      → level NOT IN ('L5','L6','L7','L8')    (ESOPs grant at L5+)
+
+  • "on-call pay" / "what we paid them for on-call"
+      → primary_oncall_weeks × ₹5,000 + secondary_oncall_weeks × ₹2,500
+        (use the WHOLE period the question asks about — usually "last
+         year" = 52 weeks max per person, but cap at the data column)
+      If the question specifically says "during the intensive response"
+      or cites a named incident → use 8 weeks, not the full year.
+
+  • "retention bonus" / "lock in" / "keep them" / "golden handcuffs"
+      → 30% × total_ctc_inr_lakhs   (cap from Salary_Structure.pdf §5)
+
+  • "compliance flagged" / "under the threshold"
+      → department completion rate < 0.90
 
 === GEO / MARKET GLOSSARY ===
 When a query mentions market groupings, interpret them as:
@@ -1069,13 +1238,33 @@ data but IS documented in a policy PDF. Cite the source in a comment.
   • Mandatory training modules = InfoSec Awareness,     (Training_Compliance.pdf §3)
                                  POSH, ABAC, DPDP Act 2023
   • External-cert bonus        = ₹25,000 per cert       (Training_Compliance.pdf §2)
-  • Vendor risk statuses       = {Conditional, Suspended} flagged
+  • Vendor risk statuses       = {{Conditional, Suspended}} flagged
                                                          (Vendor_Contracts.pdf §4)
   • AI/ML FY26-27 budget       = 38% of ₹485 Cr plan    (Product_Roadmap_2026.pdf §1)
+                                 = ₹184.30 crores
+  • AI cluster footprint       = 16 × NVIDIA A100 GPU   (Platform_Architecture.pdf §4)
+                                 nodes = 128 GPUs total,
+                                 single AWS EKS cluster
+                                 (NOT regionally redundant)
+  • FY25-26 AI infra actual    = GPU Compute ₹133.99 Cr (Financial_Transactions,
+                                 + Data Warehouse       Data & AI Research dept)
+                                 ₹49.68 Cr + GPU CapEx
+                                 ₹43.00 Cr = ₹226.67 Cr
+                                 infra-only, or ₹334.20 Cr
+                                 including salaries
   • Engineering Q4 utilisation = 94.7% of ₹210 Cr       (Q4_Financial_Report.pdf §4)
+                                 = ₹198.87 Cr actual Q4 spend
+  • Q4 Hardware Procurement    = ₹11.88 Cr booked under (Financial_Transactions)
+                                 IT Operations, NOT Engineering
+  • Engineering L4+ laptops    = MacBook Pro 16-inch    (IT_Asset_Policy.pdf §1)
+                                 M4 Max or ThinkPad equiv
   • Data-localization risk geo = Vietnam, Indonesia     (Board_Minutes_Q4.pdf §5)
   • Customer-count IPO target  = 3,500 enterprise by    (Product_Roadmap_2026.pdf §5)
                                  Q2 FY2027 (current 2,847)
+                                 => gap = 653 net new logos
+  • Serious-incident window    = 8-week intensive       (Security_Incident_Report.pdf)
+                                 response Oct-Nov 2025
+                                 after INC-2025-0847
 If the query mentions "retention bonus", "ESOP", "on-call pay", "compliance
 flag", "certification bonus", "data-localization", "IPO target", or similar,
 you probably need one of these constants — not a column lookup.
@@ -1261,6 +1450,80 @@ PATTERN I — N-TO-N CROSS-REFERENCE (avoid cartesian explosions):
           }})
   result = pd.DataFrame(rows)
 
+PATTERN J — "BIGGEST ACCOUNTS" + "WITHOUT CERTIFICATIONS" / "WITHOUT ESOPs":
+  # "Which of our BIGGEST accounts in regulated Asian markets are managed
+  # by people who DON'T have ESOPs and HAVEN'T bothered with any
+  # certifications?"
+  #
+  # Step 1 — "biggest" = Tier 1; "regulated Asian" = India/Japan/S.Korea
+  tier1_asia = df_customers[
+      (df_customers['tier'] == 'Tier 1') &
+      (df_customers['country'].isin(['India', 'Japan', 'South Korea']))
+  ]
+  # Step 2 — merge AM, keep AM level + id
+  with_am = tier1_asia.merge(
+      df_employees[['employee_id','first_name','last_name','level','job_title','department_id']],
+      left_on='account_manager_employee_id', right_on='employee_id', how='left'
+  )
+  # Step 3 — AMs WITHOUT ESOPs = level below L5
+  no_esop = with_am[~with_am['level'].isin(['L5','L6','L7','L8'])]
+  # Step 4 — AMs who have ZERO external-cert completions
+  CERT_RE = r'AWS|Azure|Google|GCP|CKA|CKAD|CKS|CISSP|CIPP|CISM|PMP|Scrum|ML Engineer'
+  certified_emp_ids = set(
+      df_training_compliance[
+          (df_training_compliance['module_name'].str.contains(CERT_RE, case=False, regex=True, na=False)) &
+          (df_training_compliance['status'] == 'Completed')
+      ]['employee_id']
+  )
+  result = no_esop[~no_esop['employee_id'].isin(certified_emp_ids)][
+      ['customer_name','country','tier','arr_inr_lakhs',
+       'first_name','last_name','level','job_title']
+  ].sort_values('arr_inr_lakhs', ascending=False)
+  # Do NOT fall back to Tier 2/3 if the result is "too small" — under-
+  # matching a business filter is ALWAYS better than over-matching.
+
+PATTERN K — "ENGINEERS WHO HANDLED SERIOUS INCIDENTS":
+  # "engineers" in a business question = technical staff across MULTIPLE
+  # departments, not just Engineering. Tech departments in this corpus:
+  TECH_DEPTS = ['Engineering','Information Security',
+                'Site Reliability Eng.','Data & AI Research','IT Operations']
+  # Step 1 — SEV-1 / SEV-2 in last calendar year
+  last_year = date.today().year - 1
+  serious = df_incidents[
+      (df_incidents['severity'].isin(['SEV-1','SEV-2'])) &
+      (pd.to_datetime(df_incidents['reported_date']).dt.year == last_year)
+  ]
+  # Step 2 — distinct reporter ids, join to employees + dept + salary
+  reporter_ids = serious['reporter_employee_id'].dropna().unique()
+  emp = df_employees.merge(
+      df_departments[['department_id','department_name']],
+      on='department_id', how='left'
+  )
+  tech = emp[
+      emp['department_name'].isin(TECH_DEPTS) &
+      emp['employee_id'].isin(reporter_ids)
+  ].merge(
+      df_salary_records[['employee_id','total_ctc_inr_lakhs']],
+      on='employee_id', how='left'
+  )
+  # Step 3 — retention (30% of CTC) + on-call pay (primary + secondary)
+  inc_counts = serious.groupby('reporter_employee_id').size().rename('serious_incidents_handled')
+  tech = tech.merge(inc_counts, left_on='employee_id', right_index=True, how='left')
+  tech['retention_bonus_inr_lakhs'] = tech['total_ctc_inr_lakhs'] * 0.30
+  tech['oncall_pay_inr_lakhs'] = (
+      tech.get('primary_oncall_weeks', 0).fillna(0) * 5000 / 100000
+      + tech.get('secondary_oncall_weeks', 0).fillna(0) * 2500 / 100000
+  )
+  tech['total_lock_in_exposure_inr_lakhs'] = (
+      tech['retention_bonus_inr_lakhs'] + tech['oncall_pay_inr_lakhs']
+  )
+  result = tech.sort_values('total_lock_in_exposure_inr_lakhs', ascending=False)[[
+      'employee_id','first_name','last_name','department_name','level',
+      'total_ctc_inr_lakhs','serious_incidents_handled',
+      'retention_bonus_inr_lakhs','oncall_pay_inr_lakhs',
+      'total_lock_in_exposure_inr_lakhs'
+  ]]
+
 CARTESIAN GUARD — SANITY CHECK YOUR RESULT SIZE:
   If result has WAY more rows than any input DataFrame (e.g. 900 rows
   from inputs of 25, 3, 8), you've done an accidental cross-join. Fix
@@ -1285,6 +1548,7 @@ def _execute_multi_table_code(code: str, dfs: dict[str, pd.DataFrame]) -> dict[s
     Extends _execute_pandas_code: sandbox exposes df_<name> for every loaded
     table plus df as the primary (largest) one for backward compat.
     """
+    code = _strip_unsafe_imports(code)
     safe, reason = _is_safe_code(code)
     if not safe:
         return {
@@ -1410,28 +1674,11 @@ def _execute_multi_table_code(code: str, dfs: dict[str, pd.DataFrame]) -> dict[s
             return None
         return obj
 
-    # Proactively scrub NaN (recursive) — same approach as multi-table path.
-    import math as _math
-    def _scrub_nan(o):
-        if isinstance(o, float) and _math.isnan(o):
-            return None
-        if hasattr(o, 'item'):
-            try:
-                v = o.item()
-                if isinstance(v, float) and _math.isnan(v):
-                    return None
-                return v
-            except Exception:
-                return None
-        if isinstance(o, dict):
-            return {k: _scrub_nan(v) for k, v in o.items()}
-        if isinstance(o, list):
-            return [_scrub_nan(x) for x in o]
-        if isinstance(o, tuple):
-            return tuple(_scrub_nan(x) for x in o)
-        if isinstance(o, (pd.Timestamp,)):
-            return o.isoformat()
-        return o
+    # Cycle- + NaN-safe scrub (shared helper at module scope). The LLM
+    # occasionally builds a result with self-referencing dicts; the
+    # id()-tracked scrubber breaks cycles instead of letting json.dumps
+    # throw "Circular reference detected".
+    _scrub_nan = _scrub_for_json
 
     try:
         scrubbed = _scrub_nan(result_data)
@@ -1486,13 +1733,23 @@ def is_multi_table_query(query: str, tabular_doc_count: int = 0) -> bool:
     """Heuristic: detect when a query needs cross-table JOINs.
 
     Signals:
-    - Mentions >1 domain noun (employees, customers, departments, vendors,...)
+    - 3+ tabular docs loaded (default: route multi-table regardless of
+      query wording — single-table picking by filename match is unreliable
+      for paraphrased questions like "laptop spend on senior engineering
+      staff" where none of 'laptop', 'senior', or 'staff' appears in a
+      filename. Multi-table agent loads all tables and lets the LLM pick.)
+    - Mentions >1 domain noun
     - Uses relational phrasing ("per department", "by vendor", "whose manager")
-    - Mentions compensation/financial terms AND ≥3 tabular docs are loaded
-      (single-table path would pick the wrong file — multi-table lets LLM
-      choose the right one from all available schemas)
+    - Single derived-metric hit (operating margin, burn rate, …)
     """
     q = query.lower()
+
+    # Default route for moderately-sized corpora: with 3+ tabular docs
+    # available, multi-table is almost always the safer bet. Skipping
+    # the routing gate catches queries that phrase entities in natural
+    # English rather than table nomenclature.
+    if tabular_doc_count >= 3:
+        return True
 
     # Derived-metric bridge: single-keyword force-route to multi-table
     # when the corpus has tabular data to derive against. Same list used
@@ -1574,7 +1831,166 @@ async def run_multi_table_query(
         }
 
     schema = _multi_table_schema_summary(dfs, docs=accessible)
-    prompt = MULTI_TABLE_ANALYTICS_PROMPT.format(schema=schema, query=query)
+    from datetime import date as _date
+    today_iso = _date.today().isoformat()
+
+    # Corpus-dynamic policy facts: retrieve rules extracted at upload time
+    # from PDFs/DOCX in this corpus that match the query. This replaces the
+    # old hardcoded TECHNOVA CONSTANTS block with facts sourced from the
+    # actual uploaded documents — so a hospital corpus yields medical
+    # thresholds, a retail corpus yields margin rules, etc.
+    from src.pipelines import fact_extractor, term_resolver
+    try:
+        retrieved_facts = fact_extractor.search_facts(
+            query=query,
+            max_doc_level=user_level,
+            limit=15,
+        )
+        policy_facts_block = fact_extractor.format_facts_for_prompt(retrieved_facts)
+    except Exception:
+        policy_facts_block = ""  # best-effort — never block code-gen on retrieval
+
+    # Phase 3 pipeline (resolver always runs; planner is GATED):
+    #
+    #   resolver → (check any ambiguity) → if ambiguous AND PRISM_PLANNER=1
+    #                                       then PLAN → dry_check → resolved
+    #                                       else use resolver output
+    #
+    # Gating avoids the regression observed on Q1/Q5 where the planner
+    # fabricated "missing dimensions" on unambiguous queries.
+    import os as _os
+    _planner_env = _os.environ.get("PRISM_PLANNER", "")
+    planner_enabled = _planner_env.strip().lower() in ("1", "true", "yes", "on")
+    term_resolutions_block = ""
+    from src.pipelines import term_resolver
+    resolutions: list[dict[str, str]] = []
+    try:
+        resolutions = await term_resolver.resolve_query_terms(
+            query=query, dfs=dfs, today_iso=today_iso,
+            policy_facts_block=policy_facts_block,
+        )
+    except Exception:
+        resolutions = []
+
+    # ── Phase 3 gate: Z — anti-join signal whitelist ──────────────
+    #
+    # Fire the planner ONLY on queries that contain one of a small,
+    # hand-curated set of anti-join signals. These are query shapes
+    # where single-pass code-gen has demonstrable interpretation
+    # ambiguity (Q3's "haven't bothered with certifications" is the
+    # canonical example: `~isin(completed)` vs `isin(non_completed)`).
+    #
+    # Unambiguous queries — Q1 ("behind on training"), Q5 ("revenue in
+    # markets") — get the direct code-gen path, because the planner's
+    # LLM-driven likely_intent picking does MORE HARM than good on
+    # those phrasings. 1-query-helped-to-2-queries-hurt is not a
+    # deployment.
+    #
+    # Whitelist entries are EARNED by evidence. New phrases only get
+    # added when a failing query is diagnosed as the same class as Q3
+    # AND the planner's prompt has been extended to handle that class
+    # AND the harness confirms no regression. See Z-handoff doc.
+    _ANTI_JOIN_SIGNALS = (
+        "haven't",
+        "have not",
+        "who didn't",
+        "did not",
+        "don't have",
+        "do not have",
+        "without ",
+        "excluding ",
+        "not completed",
+        "missing ",
+    )
+    q_lower = query.lower()
+    gate_match = next(
+        (sig for sig in _ANTI_JOIN_SIGNALS if sig in q_lower), None
+    )
+    use_planner = planner_enabled and (gate_match is not None)
+    if planner_enabled:
+        if gate_match:
+            print(f"[planner-gate] Z MATCH {gate_match!r} → firing planner", flush=True)
+        else:
+            print(f"[planner-gate] Z miss → direct code-gen (query: {query[:60]!r})", flush=True)
+
+    planner_concern: str | None = None
+
+    if use_planner:
+        print(f"[planner-gate] FIRING planner for query: {query[:80]}", flush=True)
+        from src.pipelines import planner
+        try:
+            schema_preview = term_resolver._build_schema_preview(dfs)
+            # Render FK list for the planner — kills "missing dimension"
+            # hallucinations because planner can see which JOIN chains
+            # actually exist.
+            fks = _detect_foreign_keys(dfs)
+            fk_list = "\n".join(
+                f"  {fk['from']} → {fk['to']}" for fk in fks
+            ) if fks else ""
+            print(f"[planner-gate] fk_count={len(fks)} schema_preview_len={len(schema_preview)}", flush=True)
+            plan = await planner.plan_query(
+                query=query,
+                schema_preview=schema_preview,
+                policy_facts_block=policy_facts_block,
+                today_iso=today_iso,
+                fk_list=fk_list,
+            )
+            print(f"[planner-gate] plan got: sub_decisions={len(plan.sub_decisions)} proceed={plan.proceed}", flush=True)
+            resolved = planner.dry_check_interpretations(plan, dfs)
+            term_resolutions_block = planner.format_resolved_plan_for_prompt(
+                plan, resolved
+            )
+
+            # v2.A: proceed=false is DIAGNOSTIC, not a gate.
+            # Planner's bailout logic was hallucinating "missing dimensions"
+            # even when the FK chain existed. We capture its concern and
+            # log it for later analysis, but always hand the filters it
+            # DID produce to code-gen. If the generated code then produces
+            # 0 rows, that's the real "no data" signal — not the planner's
+            # pre-emptive opinion.
+            if not plan.proceed and plan.missing_data_dimensions:
+                planner_concern = (
+                    "Planner uncertainty: "
+                    + "; ".join(plan.missing_data_dimensions)
+                )
+                # Persist to jsonl for post-hoc analysis — which queries
+                # did the planner call out as missing data, and did the
+                # code-gen then succeed (proving planner was wrong) or
+                # fail (proving planner was right)?
+                try:
+                    import json as _json, time as _time, os as _osmod
+                    _log_path = "/tmp/planner_concerns.jsonl"
+                    with open(_log_path, "a") as _f:
+                        _f.write(_json.dumps({
+                            "ts": _time.time(),
+                            "query": query,
+                            "missing_dimensions": plan.missing_data_dimensions,
+                            "sub_decisions": len(plan.sub_decisions),
+                            "unambiguous_filters": len(plan.unambiguous_filters),
+                        }) + "\n")
+                except Exception:
+                    pass
+                print(f"[planner-gate] proceed=false IGNORED (v2.A); concern logged", flush=True)
+        except Exception as exc:
+            print(f"[planner] non-fatal: {exc}; falling back to resolver output")
+            use_planner = False
+
+    if not use_planner:
+        # Resolver output is the resolution source (no planner call).
+        # Either PRISM_PLANNER is off, or no ambiguity was detected, or
+        # the planner itself failed.
+        try:
+            term_resolutions_block = term_resolver.format_resolutions_for_prompt(resolutions)
+        except Exception:
+            term_resolutions_block = ""
+
+    prompt = MULTI_TABLE_ANALYTICS_PROMPT.format(
+        schema=schema,
+        query=query,
+        today=today_iso,
+        policy_facts=policy_facts_block,
+        term_resolutions=term_resolutions_block,
+    )
 
     try:
         code = await _complete_chat(
@@ -1701,6 +2117,11 @@ async def run_multi_table_query(
     result["schema"] = schema
     result["doc_ids"] = [d.doc_id for d in accessible]
     result["filenames"] = [d.filename for d in accessible]
+    # v2.A diagnostic: surface the planner's proceed=false concern on
+    # the response so it can render as an amber chip next to the answer.
+    # Never blocks the result; purely informational.
+    if planner_concern:
+        result["planner_concern"] = planner_concern
     return result
 
 

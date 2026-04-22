@@ -5,6 +5,8 @@
     "doc/path-params.md",
     "doc/query-params.md"
   ],
+  "forbidden_routes": ["analytics"],
+  "forbidden_routes_rationale": "These are non-tabular markdown tutorial docs. Any routing to answer_mode='analytics' (multi-table SQL-like agent) is architecturally wrong — the system should go through pure RAG. See findings.md Finding 1 + 1a.",
   "queries": [
     {
       "id": "CODE_DOCS_1",

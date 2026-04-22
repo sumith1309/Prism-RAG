@@ -188,6 +188,9 @@ class QueryReport:
     events_seen: list[str] = field(default_factory=list)
     done_event: Any = None
     analytics_event: Any = None
+    answer_mode: str = ""
+    tables_joined_preview: list = field(default_factory=list)
+    route_ok: bool = True
     error: str | None = None
 
 
@@ -200,6 +203,120 @@ def _answer_blob(resp: StreamedResponse) -> str:
     if resp.done:
         parts.append(json.dumps(resp.done, ensure_ascii=False))
     return "\n".join(parts).lower()
+
+
+def _values_match(a, b, tol_abs=0, tol_pct=None) -> bool:
+    """Numeric match with optional absolute + percent tolerances."""
+    try:
+        a, b = float(a), float(b)
+    except (TypeError, ValueError):
+        return False
+    if tol_abs is None:
+        tol_abs = 0
+    if abs(a - b) <= tol_abs:
+        return True
+    if tol_pct is not None and b != 0 and abs((a - b) / b) * 100 <= tol_pct:
+        return True
+    return False
+
+
+def _find_value_in_result(analytics_event, expected_value, path_hints,
+                          tol_abs=0, tol_pct=None) -> tuple[bool, str]:
+    """Fix 1 — match expected value against `analytics.result` specifically,
+    NOT the full serialized blob. Prevents the T3 false positive where
+    `"3"` appeared in metadata while the actual answer was 8.
+
+    Handles scalar result, string-representing-number, dict (hint-guided),
+    and list-of-rows. Returns (matched, diagnostic)."""
+    if analytics_event is None:
+        return False, "no analytics event"
+    result = analytics_event.get("result")
+    if result is None:
+        return False, "analytics.result is None"
+
+    # Scalar number
+    if isinstance(result, (int, float)) and not isinstance(result, bool):
+        ok = _values_match(result, expected_value, tol_abs, tol_pct)
+        return ok, f"scalar result={result} vs expected={expected_value}"
+
+    # String — try parse as number, else substring
+    if isinstance(result, str):
+        try:
+            v = float(result.strip())
+            ok = _values_match(v, expected_value, tol_abs, tol_pct)
+            return ok, f"string-as-number result={v} vs expected={expected_value}"
+        except ValueError:
+            ok = str(expected_value) in result
+            return ok, f"string result contains '{expected_value}'? {ok}"
+
+    # Dict — hint-guided lookup
+    if isinstance(result, dict):
+        hint_matches = []
+        for k, v in result.items():
+            if any(h.lower() in k.lower() for h in path_hints):
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    if _values_match(v, expected_value, tol_abs, tol_pct):
+                        return True, f"dict['{k}']={v} (hint-match)"
+                    hint_matches.append((k, v))
+                elif isinstance(v, str) and str(expected_value) in v:
+                    return True, f"dict['{k}']='{v[:40]}' (hint-match)"
+        if hint_matches:
+            return False, f"hint key found but value mismatch: {hint_matches[:3]}"
+        if not path_hints:
+            # No hints given — loose scan is acceptable
+            for k, v in result.items():
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    if _values_match(v, expected_value, tol_abs, tol_pct):
+                        return True, f"dict['{k}']={v} (no-hint scan)"
+        return False, f"no hint-match in keys: {list(result.keys())[:6]}"
+
+    # List of rows
+    if isinstance(result, list):
+        for i, row in enumerate(result):
+            if isinstance(row, dict):
+                for k, v in row.items():
+                    if any(h.lower() in k.lower() for h in path_hints) and \
+                       isinstance(v, (int, float)) and not isinstance(v, bool):
+                        if _values_match(v, expected_value, tol_abs, tol_pct):
+                            return True, f"rows[{i}]['{k}']={v}"
+        return False, "list/rows result, no hint-match"
+
+    return False, f"unhandled result type: {type(result).__name__}"
+
+
+def _is_structural_abstention(analytics_event) -> tuple[bool, str]:
+    """Fix 2 — detect 'I don't know' in structural form (answer: None, etc.)
+    Complements phrase-based abstention checks."""
+    if analytics_event is None:
+        return False, "no analytics"
+    result = analytics_event.get("result")
+    if result is None:
+        return True, "analytics.result is None"
+    if isinstance(result, dict):
+        ans = result.get("answer")
+        if ans is None and "answer" in result:
+            return True, "analytics.result.answer is explicitly None"
+        if isinstance(ans, str) and not ans.strip():
+            return True, "analytics.result.answer is empty string"
+    return False, "no structural abstention signal"
+
+
+def _route_check(done_event, analytics_event, forbidden_routes) -> tuple[bool, str, str, list]:
+    """Fix 3 — route assertion. If the response's `answer_mode` is in the
+    domain's `forbidden_routes`, the query FAILS regardless of answer match.
+    This is the core of Finding 1a: right answer via wrong route is NOT
+    architectural correctness. Returns (pass, diagnostic, mode, tables_preview)."""
+    mode = (done_event or {}).get("answer_mode", "") if isinstance(done_event, dict) else ""
+    tables = []
+    if isinstance(analytics_event, dict):
+        t = analytics_event.get("tables_joined")
+        if isinstance(t, list):
+            tables = t[:5]
+    if not forbidden_routes:
+        return True, f"no route restriction (mode='{mode}')", mode, tables
+    if mode in forbidden_routes:
+        return False, f"FORBIDDEN route: answer_mode='{mode}' ∈ {forbidden_routes}; tables_joined={tables}", mode, tables
+    return True, f"route ok: answer_mode='{mode}'", mode, tables
 
 
 def _derive_answer_text(resp: StreamedResponse) -> str:
@@ -231,8 +348,23 @@ def _answer_text_only(resp: StreamedResponse) -> str:
     return text.lower()
 
 
-def score_standard(qry: dict, resp: StreamedResponse) -> QueryReport:
-    """Tiers 1-4: must_contain + must_not_contain + optional scalar checks."""
+def _apply_route_check(rep: QueryReport, resp: StreamedResponse,
+                       forbidden_routes: list) -> None:
+    """Append the route-assertion check to `rep`. Failing route-check makes
+    the query FAIL regardless of answer match. Finding 1a: architectural
+    correctness ≠ answer match."""
+    ok, msg, mode, tables = _route_check(resp.done, resp.analytics, forbidden_routes or [])
+    rep.answer_mode = mode
+    rep.tables_joined_preview = tables
+    rep.route_ok = ok
+    rep.checks.append((ok, f"route assertion: {msg}"))
+    if not ok:
+        rep.passed = False
+
+
+def score_standard(qry: dict, resp: StreamedResponse,
+                   forbidden_routes: list | None = None) -> QueryReport:
+    """Tiers 1-4: answer-match checks (strings + scalar-in-result) + route assertion."""
     ans_text = _derive_answer_text(resp)
     rep = QueryReport(id=qry["id"], difficulty=qry["difficulty"],
                       tier_name=qry["tier_name"], label=qry["label"],
@@ -243,7 +375,7 @@ def score_standard(qry: dict, resp: StreamedResponse) -> QueryReport:
     expected = qry.get("expected", {})
     blob = _answer_blob(resp)
 
-    # must_contain_strings_all — every string must appear
+    # must_contain_strings_all — every string must appear in blob
     for s in expected.get("must_contain_strings_all", []):
         hit = s.lower() in blob
         rep.checks.append((hit, f"must_contain_all: '{s}' {'✓' if hit else '✗'}"))
@@ -255,8 +387,7 @@ def score_standard(qry: dict, resp: StreamedResponse) -> QueryReport:
     if any_list:
         hits = [s for s in any_list if s.lower() in blob]
         ok = len(hits) >= 1
-        rep.checks.append((ok, f"must_contain_any ({len(hits)}/{len(any_list)}): "
-                               f"{hits[:3]}"))
+        rep.checks.append((ok, f"must_contain_any ({len(hits)}/{len(any_list)}): {hits[:3]}"))
         if not ok:
             rep.passed = False
 
@@ -276,24 +407,28 @@ def score_standard(qry: dict, resp: StreamedResponse) -> QueryReport:
         if hit:
             rep.passed = False
 
-    # Very loose scalar check — just verifies the expected number appears
-    # somewhere in the answer. Full path-based scalar matching (like
-    # rag_golden_eval) is overkill for text-only code-docs queries.
+    # Fix 1: scalar_checks match against analytics.result specifically,
+    # not the full serialized blob. Prevents T3-style false positives.
     for sc in expected.get("scalar_checks", []):
         expected_val = sc["expected"]
-        as_str = str(expected_val).rstrip("0").rstrip(".") if isinstance(expected_val, float) else str(expected_val)
-        hit = as_str in blob
-        rep.checks.append((hit, f"scalar '{sc['name']}' = {expected_val} "
-                                f"{'✓ found' if hit else '✗ missing'}"))
-        if not hit:
+        hints = sc.get("path_hints", [])
+        tol_abs = sc.get("tolerance_abs", 0)
+        tol_pct = sc.get("tolerance_pct")
+        ok, msg = _find_value_in_result(resp.analytics, expected_val, hints,
+                                         tol_abs=tol_abs, tol_pct=tol_pct)
+        rep.checks.append((ok, f"scalar '{sc['name']}' = {expected_val} → {msg}"))
+        if not ok:
             rep.passed = False
 
+    # Fix 3: route assertion
+    _apply_route_check(rep, resp, forbidden_routes)
     return rep
 
 
-def score_abstention(qry: dict, resp: StreamedResponse) -> QueryReport:
-    """Tier 5: must use abstention language, must NOT emit hallucination flags.
-    Scores against answer text ONLY (excludes metadata like timestamps)."""
+def score_abstention(qry: dict, resp: StreamedResponse,
+                     forbidden_routes: list | None = None) -> QueryReport:
+    """Tier 5: must use abstention language (phrase OR structural),
+    must NOT emit hallucination flags. Plus route assertion."""
     ans_text = _derive_answer_text(resp)
     rep = QueryReport(id=qry["id"], difficulty=qry["difficulty"],
                       tier_name=qry["tier_name"], label=qry["label"],
@@ -302,14 +437,24 @@ def score_abstention(qry: dict, resp: StreamedResponse) -> QueryReport:
                       done_event=resp.done,
                       analytics_event=resp.analytics)
     expected = qry.get("expected", {})
-    text = _answer_text_only(resp)  # metadata-free scoring surface
+    text = _answer_text_only(resp)  # metadata-free surface
 
     abstention_any = expected.get("abstention_phrases_any", [])
     hallu_flags = expected.get("hallucination_red_flags", [])
 
-    abstained = any(p.lower() in text for p in abstention_any)
+    # Phrase-based abstention
+    phrase_abstained = any(p.lower() in text for p in abstention_any)
+    # Fix 2: structural abstention (answer: None / empty)
+    struct_abstained, struct_msg = _is_structural_abstention(resp.analytics)
+    abstained = phrase_abstained or struct_abstained
+
+    form = ("phrase" if phrase_abstained else "") + \
+           (("+" if phrase_abstained and struct_abstained else "") if True else "") + \
+           ("structural" if struct_abstained else "")
+    form = form or "neither"
     rep.checks.append((abstained,
-        f"abstained ({'✓ honest refusal' if abstained else '✗ NO refusal phrase'})"))
+        f"abstained via {form} "
+        f"({'✓ honest refusal' if abstained else '✗ NO refusal signal (struct: ' + struct_msg + ')'})"))
 
     flagged = [f for f in hallu_flags if f.lower() in text]
     clean = len(flagged) == 0
@@ -317,6 +462,9 @@ def score_abstention(qry: dict, resp: StreamedResponse) -> QueryReport:
         f"hallucination check ({'✓ clean' if clean else f'✗ FLAGGED: {flagged}'})"))
 
     rep.passed = abstained and clean
+
+    # Fix 3: route assertion
+    _apply_route_check(rep, resp, forbidden_routes)
     return rep
 
 
@@ -343,7 +491,10 @@ def discover_domains() -> list[Path]:
 def run_domain(base_url: str, token: str, domain_dir: Path) -> dict[str, Any]:
     spec = json.loads((domain_dir / "queries.json").read_text())
     domain_name = spec["domain"]
+    forbidden_routes = spec.get("forbidden_routes", [])
     print(f"\n{_C.B}═══ {domain_name} ═══{_C.Z}  ({domain_dir})")
+    if forbidden_routes:
+        print(f"  forbidden_routes = {forbidden_routes}")
 
     # Upload docs
     doc_paths = [domain_dir / rel for rel in spec["docs"]]
@@ -365,7 +516,10 @@ def run_domain(base_url: str, token: str, domain_dir: Path) -> dict[str, Any]:
         try:
             resp = stream_chat(base_url, token, qry["query"], doc_ids)
             is_abstention = qry["difficulty"] == 5
-            rep = score_abstention(qry, resp) if is_abstention else score_standard(qry, resp)
+            if is_abstention:
+                rep = score_abstention(qry, resp, forbidden_routes=forbidden_routes)
+            else:
+                rep = score_standard(qry, resp, forbidden_routes=forbidden_routes)
             rep.latency_s = round(time.time() - t0, 1)
         except Exception as e:
             rep = QueryReport(id=qry["id"], difficulty=qry["difficulty"],

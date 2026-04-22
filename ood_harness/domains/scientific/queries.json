@@ -4,6 +4,8 @@
   "docs": [
     "doc/efficient_inference_survey.pdf"
   ],
+  "forbidden_routes": ["analytics"],
+  "forbidden_routes_rationale": "Non-tabular scientific PDF. Multi-table analytics routing is architecturally wrong for this corpus. See findings.md Finding 1 + 1a.",
   "queries": [
     {
       "id": "SCIENTIFIC_1",

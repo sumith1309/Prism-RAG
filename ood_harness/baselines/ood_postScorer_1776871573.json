@@ -1,0 +1,892 @@
+{
+  "label": "ood_postScorer",
+  "wall_seconds": 68.5,
+  "passed": 0,
+  "total": 10,
+  "domains": [
+    {
+      "domain": "code_docs",
+      "doc_ids": [
+        "35ce94fec643",
+        "a9682e99e235"
+      ],
+      "passed": 0,
+      "total": 5,
+      "queries": [
+        {
+          "id": "CODE_DOCS_1",
+          "difficulty": 1,
+          "tier_name": "extraction",
+          "label": "Enum for predefined path param values",
+          "query": "What Python class does FastAPI recommend using for predefined path parameter values?",
+          "passed": false,
+          "checks": [
+            [
+              true,
+              "must_contain_any (1/1): ['Enum']"
+            ],
+            [
+              false,
+              "route assertion: FORBIDDEN route: answer_mode='analytics' \u2208 ['analytics']; tables_joined=['departments', 'employees', 'salary_records', 'customers', 'products_services']"
+            ]
+          ],
+          "latency_s": 7.3,
+          "answer_preview": "",
+          "events_seen": [
+            "thread",
+            "analytics",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "analytics",
+            "thread_id": "f388449ed939",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 0,
+              "rerank": 0,
+              "generate": 7317,
+              "total": 7330
+            },
+            "tokens": {
+              "prompt": 0,
+              "completion": 0
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0
+          },
+          "analytics_event": {
+            "ok": true,
+            "result": "Enum",
+            "result_type": "scalar",
+            "chart": null,
+            "error": null,
+            "code": "result = \"Enum\"",
+            "doc_id": "d1c60a9ac7a8",
+            "filename": "00_README_and_Schema.xlsx + 01_Departments.xlsx + 02_Employees.xlsx + 03_Salary_Records.xlsx + 04_Customers.xlsx + 05_Products_Services.xlsx + 06_Incidents.xlsx + 07_Vendors.xlsx + 08_Financial_Transa",
+            "tables_joined": [
+              "departments",
+              "employees",
+              "salary_records",
+              "customers",
+              "products_services",
+              "incidents",
+              "vendors",
+              "financial_transactions",
+              "training_compliance",
+              "assets_licenses",
+              "total_time_card_20260317100819"
+            ],
+            "validator_concern": null
+          },
+          "answer_mode": "analytics",
+          "tables_joined_preview": [
+            "departments",
+            "employees",
+            "salary_records",
+            "customers",
+            "products_services"
+          ],
+          "route_ok": false,
+          "error": null
+        },
+        {
+          "id": "CODE_DOCS_2",
+          "difficulty": 2,
+          "tier_name": "comparison",
+          "label": "Which have defaults \u2014 path vs query parameters",
+          "query": "Which have default values \u2014 path parameters or query parameters?",
+          "passed": false,
+          "checks": [
+            [
+              true,
+              "must_contain_all: 'query parameters' \u2713"
+            ],
+            [
+              true,
+              "must_contain_all: 'default' \u2713"
+            ],
+            [
+              true,
+              "must_not_contain: 'path parameters have default' \u2713 absent"
+            ],
+            [
+              true,
+              "must_not_contain: 'path parameters can have defaults' \u2713 absent"
+            ],
+            [
+              false,
+              "route assertion: FORBIDDEN route: answer_mode='analytics' \u2208 ['analytics']; tables_joined=['departments', 'employees', 'salary_records', 'customers', 'products_services']"
+            ]
+          ],
+          "latency_s": 7.3,
+          "answer_preview": "",
+          "events_seen": [
+            "thread",
+            "analytics",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "analytics",
+            "thread_id": "7fc843e0d86a",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 0,
+              "rerank": 0,
+              "generate": 7307,
+              "total": 7318
+            },
+            "tokens": {
+              "prompt": 0,
+              "completion": 0
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0
+          },
+          "analytics_event": {
+            "ok": true,
+            "result": {
+              "answer": "query parameters",
+              "default_values": {
+                "skip": 0,
+                "limit": 10
+              },
+              "evidence": [
+                "The corpus policy facts state default values for query parameters skip=0 and limit=10.",
+                "No default-value fact is provided for path parameters."
+              ]
+            },
+            "result_type": "scalar",
+            "chart": null,
+            "error": null,
+            "code": "result = {\n    'answer': 'query parameters',\n    'default_values': {'skip': 0, 'limit': 10},\n    'evidence': [\n        'The corpus policy facts state default values for query parameters skip=0 and limit=10.',\n        'No default-value fact is provided for path parameters.'\n    ]\n}",
+            "doc_id": "d1c60a9ac7a8",
+            "filename": "00_README_and_Schema.xlsx + 01_Departments.xlsx + 02_Employees.xlsx + 03_Salary_Records.xlsx + 04_Customers.xlsx + 05_Products_Services.xlsx + 06_Incidents.xlsx + 07_Vendors.xlsx + 08_Financial_Transa",
+            "tables_joined": [
+              "departments",
+              "employees",
+              "salary_records",
+              "customers",
+              "products_services",
+              "incidents",
+              "vendors",
+              "financial_transactions",
+              "training_compliance",
+              "assets_licenses",
+              "total_time_card_20260317100819"
+            ],
+            "validator_concern": null
+          },
+          "answer_mode": "analytics",
+          "tables_joined_preview": [
+            "departments",
+            "employees",
+            "salary_records",
+            "customers",
+            "products_services"
+          ],
+          "route_ok": false,
+          "error": null
+        },
+        {
+          "id": "CODE_DOCS_3",
+          "difficulty": 3,
+          "tier_name": "aggregation",
+          "label": "Count of benefits in Path Params Recap",
+          "query": "In the Recap section of the Path Parameters tutorial, how many benefits of using Python type declarations are listed?",
+          "passed": false,
+          "checks": [
+            [
+              true,
+              "must_contain_any (1/1): ['4']"
+            ],
+            [
+              true,
+              "scalar 'benefit_count' = 4 \u2192 dict['benefits_of_using_python_type_declarations_in_recap']=4 (hint-match)"
+            ],
+            [
+              false,
+              "route assertion: FORBIDDEN route: answer_mode='analytics' \u2208 ['analytics']; tables_joined=['departments', 'employees', 'salary_records', 'customers', 'products_services']"
+            ]
+          ],
+          "latency_s": 7.2,
+          "answer_preview": "",
+          "events_seen": [
+            "thread",
+            "analytics",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "analytics",
+            "thread_id": "6f64536c06bb",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 0,
+              "rerank": 0,
+              "generate": 7164,
+              "total": 7175
+            },
+            "tokens": {
+              "prompt": 0,
+              "completion": 0
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0
+          },
+          "analytics_event": {
+            "ok": true,
+            "result": {
+              "benefits_of_using_python_type_declarations_in_recap": 4,
+              "source": "Path Parameters tutorial Recap section"
+            },
+            "result_type": "scalar",
+            "chart": null,
+            "error": null,
+            "code": "result = {\n    'benefits_of_using_python_type_declarations_in_recap': 4,\n    'source': 'Path Parameters tutorial Recap section'\n}",
+            "doc_id": "d1c60a9ac7a8",
+            "filename": "00_README_and_Schema.xlsx + 01_Departments.xlsx + 02_Employees.xlsx + 03_Salary_Records.xlsx + 04_Customers.xlsx + 05_Products_Services.xlsx + 06_Incidents.xlsx + 07_Vendors.xlsx + 08_Financial_Transa",
+            "tables_joined": [
+              "departments",
+              "employees",
+              "salary_records",
+              "customers",
+              "products_services",
+              "incidents",
+              "vendors",
+              "financial_transactions",
+              "training_compliance",
+              "assets_licenses",
+              "total_time_card_20260317100819"
+            ],
+            "validator_concern": null
+          },
+          "answer_mode": "analytics",
+          "tables_joined_preview": [
+            "departments",
+            "employees",
+            "salary_records",
+            "customers",
+            "products_services"
+          ],
+          "route_ok": false,
+          "error": null
+        },
+        {
+          "id": "CODE_DOCS_4",
+          "difficulty": 4,
+          "tier_name": "multi_step",
+          "label": "path convertor behavior + URL resolution",
+          "query": "I define a path `/files/{file_path:path}`. What does the `:path` convertor do, and what would `file_path` be if I hit the URL `/files/home/user/data.txt`?",
+          "passed": false,
+          "checks": [
+            [
+              true,
+              "must_contain_all: 'home/user/data.txt' \u2713"
+            ],
+            [
+              true,
+              "must_contain_any (1/3): ['path']"
+            ],
+            [
+              false,
+              "route assertion: FORBIDDEN route: answer_mode='analytics' \u2208 ['analytics']; tables_joined=['departments', 'employees', 'salary_records', 'customers', 'products_services']"
+            ]
+          ],
+          "latency_s": 5.5,
+          "answer_preview": "",
+          "events_seen": [
+            "thread",
+            "analytics",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "analytics",
+            "thread_id": "353adc407b8a",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 0,
+              "rerank": 0,
+              "generate": 5431,
+              "total": 5440
+            },
+            "tokens": {
+              "prompt": 0,
+              "completion": 0
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0
+          },
+          "analytics_event": {
+            "ok": true,
+            "result": {
+              "converter": "path",
+              "meaning": "captures the rest of the URL path including forward slashes",
+              "url": "/files/home/user/data.txt",
+              "file_path": "home/user/data.txt"
+            },
+            "result_type": "scalar",
+            "chart": null,
+            "error": null,
+            "code": "result = {\n    'converter': 'path',\n    'meaning': 'captures the rest of the URL path including forward slashes',\n    'url': '/files/home/user/data.txt',\n    'file_path': 'home/user/data.txt'\n}",
+            "doc_id": "d1c60a9ac7a8",
+            "filename": "00_README_and_Schema.xlsx + 01_Departments.xlsx + 02_Employees.xlsx + 03_Salary_Records.xlsx + 04_Customers.xlsx + 05_Products_Services.xlsx + 06_Incidents.xlsx + 07_Vendors.xlsx + 08_Financial_Transa",
+            "tables_joined": [
+              "departments",
+              "employees",
+              "salary_records",
+              "customers",
+              "products_services",
+              "incidents",
+              "vendors",
+              "financial_transactions",
+              "training_compliance",
+              "assets_licenses",
+              "total_time_card_20260317100819"
+            ],
+            "validator_concern": null
+          },
+          "answer_mode": "analytics",
+          "tables_joined_preview": [
+            "departments",
+            "employees",
+            "salary_records",
+            "customers",
+            "products_services"
+          ],
+          "route_ok": false,
+          "error": null
+        },
+        {
+          "id": "CODE_DOCS_5",
+          "difficulty": 5,
+          "tier_name": "abstention",
+          "label": "FastAPI 2.0 release date (NOT in docs)",
+          "query": "What is the release date for FastAPI version 2.0?",
+          "passed": false,
+          "checks": [
+            [
+              false,
+              "abstained via neither (\u2717 NO refusal signal (struct: no structural abstention signal))"
+            ],
+            [
+              true,
+              "hallucination check (\u2713 clean)"
+            ],
+            [
+              false,
+              "route assertion: FORBIDDEN route: answer_mode='analytics' \u2208 ['analytics']; tables_joined=['departments', 'employees', 'salary_records', 'customers', 'products_services']"
+            ]
+          ],
+          "latency_s": 8.9,
+          "answer_preview": "",
+          "events_seen": [
+            "thread",
+            "analytics",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "analytics",
+            "thread_id": "b7c949e876df",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 0,
+              "rerank": 0,
+              "generate": 8863,
+              "total": 8871
+            },
+            "tokens": {
+              "prompt": 0,
+              "completion": 0
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0
+          },
+          "analytics_event": {
+            "ok": true,
+            "result": "I can\u2019t determine the release date for FastAPI version 2.0 from the available DataFrames or the provided document facts.",
+            "result_type": "scalar",
+            "chart": null,
+            "error": null,
+            "code": "result = \"I can\u2019t determine the release date for FastAPI version 2.0 from the available DataFrames or the provided document facts.\"",
+            "doc_id": "d1c60a9ac7a8",
+            "filename": "00_README_and_Schema.xlsx + 01_Departments.xlsx + 02_Employees.xlsx + 03_Salary_Records.xlsx + 04_Customers.xlsx + 05_Products_Services.xlsx + 06_Incidents.xlsx + 07_Vendors.xlsx + 08_Financial_Transa",
+            "tables_joined": [
+              "departments",
+              "employees",
+              "salary_records",
+              "customers",
+              "products_services",
+              "incidents",
+              "vendors",
+              "financial_transactions",
+              "training_compliance",
+              "assets_licenses",
+              "total_time_card_20260317100819"
+            ],
+            "validator_concern": null
+          },
+          "answer_mode": "analytics",
+          "tables_joined_preview": [
+            "departments",
+            "employees",
+            "salary_records",
+            "customers",
+            "products_services"
+          ],
+          "route_ok": false,
+          "error": null
+        }
+      ]
+    },
+    {
+      "domain": "scientific",
+      "doc_ids": [
+        "08fa72ee0ea4"
+      ],
+      "passed": 0,
+      "total": 5,
+      "queries": [
+        {
+          "id": "SCIENTIFIC_1",
+          "difficulty": 1,
+          "tier_name": "extraction",
+          "label": "LLaMA-2-70B parameter count",
+          "query": "How many billion parameters does the LLaMA-2-70B model have?",
+          "passed": false,
+          "checks": [
+            [
+              true,
+              "must_contain_any (1/1): ['70']"
+            ],
+            [
+              false,
+              "route assertion: FORBIDDEN route: answer_mode='analytics' \u2208 ['analytics']; tables_joined=['departments', 'employees', 'salary_records', 'customers', 'products_services']"
+            ]
+          ],
+          "latency_s": 6.3,
+          "answer_preview": "",
+          "events_seen": [
+            "thread",
+            "analytics",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "analytics",
+            "thread_id": "dc25e0f643b8",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 0,
+              "rerank": 0,
+              "generate": 6319,
+              "total": 6330
+            },
+            "tokens": {
+              "prompt": 0,
+              "completion": 0
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0
+          },
+          "analytics_event": {
+            "ok": true,
+            "result": {
+              "model_name": "LLaMA-2-70B",
+              "parameters_billion": 70.0,
+              "source": "efficient_inference_survey.pdf \u00a72.3"
+            },
+            "result_type": "scalar",
+            "chart": null,
+            "error": null,
+            "code": "result = {\n    'model_name': 'LLaMA-2-70B',\n    'parameters_billion': 70.0,\n    'source': 'efficient_inference_survey.pdf \u00a72.3'\n}",
+            "doc_id": "d1c60a9ac7a8",
+            "filename": "00_README_and_Schema.xlsx + 01_Departments.xlsx + 02_Employees.xlsx + 03_Salary_Records.xlsx + 04_Customers.xlsx + 05_Products_Services.xlsx + 06_Incidents.xlsx + 07_Vendors.xlsx + 08_Financial_Transa",
+            "tables_joined": [
+              "departments",
+              "employees",
+              "salary_records",
+              "customers",
+              "products_services",
+              "incidents",
+              "vendors",
+              "financial_transactions",
+              "training_compliance",
+              "assets_licenses",
+              "total_time_card_20260317100819"
+            ],
+            "validator_concern": null
+          },
+          "answer_mode": "analytics",
+          "tables_joined_preview": [
+            "departments",
+            "employees",
+            "salary_records",
+            "customers",
+            "products_services"
+          ],
+          "route_ok": false,
+          "error": null
+        },
+        {
+          "id": "SCIENTIFIC_2",
+          "difficulty": 2,
+          "tier_name": "comparison",
+          "label": "A100 vs 3090Ti GPU count for LLaMA-2-70B",
+          "query": "Which requires fewer GPUs to deploy LLaMA-2-70B in FP16 \u2014 RTX 3090Ti (24 GB VRAM each) or NVIDIA A100 (80 GB VRAM each)?",
+          "passed": false,
+          "checks": [
+            [
+              true,
+              "must_contain_all: 'A100' \u2713"
+            ],
+            [
+              true,
+              "must_contain_any (1/2): ['2']"
+            ],
+            [
+              true,
+              "must_not_contain: '3090Ti requires fewer' \u2713 absent"
+            ],
+            [
+              true,
+              "must_not_contain: '3090Ti needs fewer' \u2713 absent"
+            ],
+            [
+              false,
+              "route assertion: FORBIDDEN route: answer_mode='analytics' \u2208 ['analytics']; tables_joined=['departments', 'employees', 'salary_records', 'customers', 'products_services']"
+            ]
+          ],
+          "latency_s": 8.6,
+          "answer_preview": "",
+          "events_seen": [
+            "thread",
+            "analytics",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "analytics",
+            "thread_id": "2b20ff9bab36",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 0,
+              "rerank": 0,
+              "generate": 8589,
+              "total": 8599
+            },
+            "tokens": {
+              "prompt": 0,
+              "completion": 0
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0
+          },
+          "analytics_event": {
+            "ok": true,
+            "result": {
+              "columns": [
+                "gpu_type",
+                "vram_per_gpu_gb",
+                "gpus_required_for_llama2_70b_fp16"
+              ],
+              "rows": [
+                {
+                  "gpu_type": "NVIDIA A100",
+                  "vram_per_gpu_gb": 80.0,
+                  "gpus_required_for_llama2_70b_fp16": 2.0
+                },
+                {
+                  "gpu_type": "RTX 3090Ti",
+                  "vram_per_gpu_gb": 24.0,
+                  "gpus_required_for_llama2_70b_fp16": 6.0
+                }
+              ],
+              "total_rows": 2,
+              "truncated": false
+            },
+            "result_type": "table",
+            "chart": null,
+            "error": null,
+            "code": "deployment_options = pd.DataFrame({\n    'gpu_type': ['RTX 3090Ti', 'NVIDIA A100'],\n    'vram_per_gpu_gb': [24.0, 80.0],\n    'gpus_required_for_llama2_70b_fp16': [6.0, 2.0]\n})\n\nresult = deployment_options.sort_values('gpus_required_for_llama2_70b_fp16').reset_index(drop=True)",
+            "doc_id": "d1c60a9ac7a8",
+            "filename": "00_README_and_Schema.xlsx + 01_Departments.xlsx + 02_Employees.xlsx + 03_Salary_Records.xlsx + 04_Customers.xlsx + 05_Products_Services.xlsx + 06_Incidents.xlsx + 07_Vendors.xlsx + 08_Financial_Transa",
+            "tables_joined": [
+              "departments",
+              "employees",
+              "salary_records",
+              "customers",
+              "products_services",
+              "incidents",
+              "vendors",
+              "financial_transactions",
+              "training_compliance",
+              "assets_licenses",
+              "total_time_card_20260317100819"
+            ],
+            "validator_concern": null
+          },
+          "answer_mode": "analytics",
+          "tables_joined_preview": [
+            "departments",
+            "employees",
+            "salary_records",
+            "customers",
+            "products_services"
+          ],
+          "route_ok": false,
+          "error": null
+        },
+        {
+          "id": "SCIENTIFIC_3",
+          "difficulty": 3,
+          "tier_name": "aggregation",
+          "label": "Count of top-level optimization categories",
+          "query": "According to the taxonomy in this survey, how many top-level optimization categories (levels) are presented for efficient LLM inference?",
+          "passed": false,
+          "checks": [
+            [
+              true,
+              "must_contain_any (1/2): ['3']"
+            ],
+            [
+              true,
+              "scalar 'category_count' = 3 \u2192 scalar result=3 vs expected=3"
+            ],
+            [
+              false,
+              "route assertion: FORBIDDEN route: answer_mode='analytics' \u2208 ['analytics']; tables_joined=['departments', 'employees', 'salary_records', 'customers', 'products_services']"
+            ]
+          ],
+          "latency_s": 4.8,
+          "answer_preview": "",
+          "events_seen": [
+            "thread",
+            "analytics",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "analytics",
+            "thread_id": "a595a563aef1",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 0,
+              "rerank": 0,
+              "generate": 4788,
+              "total": 4798
+            },
+            "tokens": {
+              "prompt": 0,
+              "completion": 0
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0
+          },
+          "analytics_event": {
+            "ok": true,
+            "result": 3,
+            "result_type": "scalar",
+            "chart": null,
+            "error": null,
+            "code": "result = 3",
+            "doc_id": "d1c60a9ac7a8",
+            "filename": "00_README_and_Schema.xlsx + 01_Departments.xlsx + 02_Employees.xlsx + 03_Salary_Records.xlsx + 04_Customers.xlsx + 05_Products_Services.xlsx + 06_Incidents.xlsx + 07_Vendors.xlsx + 08_Financial_Transa",
+            "tables_joined": [
+              "departments",
+              "employees",
+              "salary_records",
+              "customers",
+              "products_services",
+              "incidents",
+              "vendors",
+              "financial_transactions",
+              "training_compliance",
+              "assets_licenses",
+              "total_time_card_20260317100819"
+            ],
+            "validator_concern": null
+          },
+          "answer_mode": "analytics",
+          "tables_joined_preview": [
+            "departments",
+            "employees",
+            "salary_records",
+            "customers",
+            "products_services"
+          ],
+          "route_ok": false,
+          "error": null
+        },
+        {
+          "id": "SCIENTIFIC_4",
+          "difficulty": 4,
+          "tier_name": "multi_step",
+          "label": "VRAM math: 140 GB LLaMA-2-70B / 80 GB A100",
+          "query": "LLaMA-2-70B model weights in FP16 format require 140 GB of VRAM. If I use NVIDIA A100 GPUs with 80 GB VRAM each, how many A100 GPUs do I need at minimum to hold the weights?",
+          "passed": false,
+          "checks": [
+            [
+              true,
+              "must_contain_any (1/1): ['2']"
+            ],
+            [
+              true,
+              "scalar 'min_a100_count' = 2 \u2192 scalar result=2 vs expected=2"
+            ],
+            [
+              false,
+              "route assertion: FORBIDDEN route: answer_mode='analytics' \u2208 ['analytics']; tables_joined=['departments', 'employees', 'salary_records', 'customers', 'products_services']"
+            ]
+          ],
+          "latency_s": 6.6,
+          "answer_preview": "",
+          "events_seen": [
+            "thread",
+            "analytics",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "analytics",
+            "thread_id": "da1c4664ef3a",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 0,
+              "rerank": 0,
+              "generate": 6536,
+              "total": 6546
+            },
+            "tokens": {
+              "prompt": 0,
+              "completion": 0
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0
+          },
+          "analytics_event": {
+            "ok": true,
+            "result": 2,
+            "result_type": "scalar",
+            "chart": null,
+            "error": null,
+            "code": "result = 2",
+            "doc_id": "d1c60a9ac7a8",
+            "filename": "00_README_and_Schema.xlsx + 01_Departments.xlsx + 02_Employees.xlsx + 03_Salary_Records.xlsx + 04_Customers.xlsx + 05_Products_Services.xlsx + 06_Incidents.xlsx + 07_Vendors.xlsx + 08_Financial_Transa",
+            "tables_joined": [
+              "departments",
+              "employees",
+              "salary_records",
+              "customers",
+              "products_services",
+              "incidents",
+              "vendors",
+              "financial_transactions",
+              "training_compliance",
+              "assets_licenses",
+              "total_time_card_20260317100819"
+            ],
+            "validator_concern": null
+          },
+          "answer_mode": "analytics",
+          "tables_joined_preview": [
+            "departments",
+            "employees",
+            "salary_records",
+            "customers",
+            "products_services"
+          ],
+          "route_ok": false,
+          "error": null
+        },
+        {
+          "id": "SCIENTIFIC_5",
+          "difficulty": 5,
+          "tier_name": "abstention",
+          "label": "Learning rate recommendation (NOT in survey)",
+          "query": "What learning rate does this paper recommend for fine-tuning the inference optimization methods?",
+          "passed": false,
+          "checks": [
+            [
+              true,
+              "abstained via structural (\u2713 honest refusal)"
+            ],
+            [
+              true,
+              "hallucination check (\u2713 clean)"
+            ],
+            [
+              false,
+              "route assertion: FORBIDDEN route: answer_mode='analytics' \u2208 ['analytics']; tables_joined=['departments', 'employees', 'salary_records', 'customers', 'products_services']"
+            ]
+          ],
+          "latency_s": 6.0,
+          "answer_preview": "",
+          "events_seen": [
+            "thread",
+            "analytics",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "analytics",
+            "thread_id": "882c432e2988",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 0,
+              "rerank": 0,
+              "generate": 5944,
+              "total": 5951
+            },
+            "tokens": {
+              "prompt": 0,
+              "completion": 0
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0
+          },
+          "analytics_event": {
+            "ok": true,
+            "result": {
+              "answer": null,
+              "context": "No recommendation on learning rate for fine-tuning inference optimization methods is available in the loaded pandas DataFrames or the extracted policy facts from efficient_inference_survey.pdf."
+            },
+            "result_type": "scalar",
+            "chart": null,
+            "error": null,
+            "code": "result = {\n    'answer': None,\n    'context': \"No recommendation on learning rate for fine-tuning inference optimization methods is available in the loaded pandas DataFrames or the extracted policy facts from efficient_inference_survey.pdf.\"\n}",
+            "doc_id": "d1c60a9ac7a8",
+            "filename": "00_README_and_Schema.xlsx + 01_Departments.xlsx + 02_Employees.xlsx + 03_Salary_Records.xlsx + 04_Customers.xlsx + 05_Products_Services.xlsx + 06_Incidents.xlsx + 07_Vendors.xlsx + 08_Financial_Transa",
+            "tables_joined": [
+              "departments",
+              "employees",
+              "salary_records",
+              "customers",
+              "products_services",
+              "incidents",
+              "vendors",
+              "financial_transactions",
+              "training_compliance",
+              "assets_licenses",
+              "total_time_card_20260317100819"
+            ],
+            "validator_concern": null
+          },
+          "answer_mode": "analytics",
+          "tables_joined_preview": [
+            "departments",
+            "employees",
+            "salary_records",
+            "customers",
+            "products_services"
+          ],
+          "route_ok": false,
+          "error": null
+        }
+      ]
+    }
+  ]
+}

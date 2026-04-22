@@ -130,8 +130,8 @@ answer.
 ## Finding 2 — OOD scorer has three gaps that bias results
 
 **Date:** 2026-04-23 morning
-**Status:** fix pending (scoring hygiene patch; MUST land before A)
-**Budget:** 45 min
+**Status:** FIXED (2026-04-23, same day). 3-fix patch landed in `ood_eval.py`.
+**Budget used:** ~50 min
 
 **Gap 1 — numeric substring false positive.**
 T3 ("how many top-level optimization categories?") system returned
@@ -174,4 +174,30 @@ in the QueryReport for diagnostic visibility.
 territory — not "loosening to rescue." It's making the scorer actually measure
 what it claims to measure, including the architectural path the answer came
 through.
+
+**Post-patch baseline (2026-04-23, `ood_postScorer_1776871573.json`).**
+With the fixed scorer running against the *current* (pre-A) backend:
+
+| domain | answer-match (old scorer) | route-ok + answer-match (new scorer) |
+|---|---|---|
+| code_docs | 2/5 | **0/5** |
+| scientific | 4/5 | **0/5** |
+| overall | 6/10 | **0/10** |
+
+Every query routes to `answer_mode='analytics'` with the 11 TechNova tables
+joined. Route assertion fails all 10, regardless of answer match. This is
+the honest pre-A floor. When A ships and routes non-tabular scopes away
+from analytics, the delta from 0/10 is real measurement of A's impact.
+
+Sub-findings the scorer fixes surfaced:
+- SCIENTIFIC_3 previously `result=8` (wrong) "passed" via old-scorer blob
+  substring hit on `"3"`. New run shows `result=3` (correct) — but this
+  is LLM run-to-run variance at the analytics-agent level, not a bug fix.
+  Route is still wrong in both cases.
+- SCIENTIFIC_5 structural abstention (`analytics.result.answer is
+  explicitly None`) now passes the phrase-check gate via structural path.
+  Exactly the Gap 2 case.
+- CODE_DOCS_3 `benefits_of_using_python_type_declarations_in_recap=4`
+  correctly resolved via hint-match in dict result, not blob substring.
+  Gap 1 case.
 

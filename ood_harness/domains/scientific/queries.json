@@ -1,0 +1,114 @@
+{
+  "domain": "scientific",
+  "description": "arXiv survey 'A Survey on Efficient Inference for Large Language Models' (Zhou et al., 2404.14294) — 5 queries across difficulty tiers 1-5",
+  "docs": [
+    "doc/efficient_inference_survey.pdf"
+  ],
+  "queries": [
+    {
+      "id": "SCIENTIFIC_1",
+      "difficulty": 1,
+      "tier_name": "extraction",
+      "label": "LLaMA-2-70B parameter count",
+      "query": "How many billion parameters does the LLaMA-2-70B model have?",
+      "expected": {
+        "must_contain_strings_any_cell": ["70"]
+      },
+      "ground_truth_note": "Answer is 70 billion. Scalar '70' in any form is correct.",
+      "source": "p.3, Efficiency Analysis"
+    },
+    {
+      "id": "SCIENTIFIC_2",
+      "difficulty": 2,
+      "tier_name": "comparison",
+      "label": "A100 vs 3090Ti GPU count for LLaMA-2-70B",
+      "query": "Which requires fewer GPUs to deploy LLaMA-2-70B in FP16 — RTX 3090Ti (24 GB VRAM each) or NVIDIA A100 (80 GB VRAM each)?",
+      "expected": {
+        "must_contain_strings_all": ["A100"],
+        "must_contain_strings_any_cell": ["2", "fewer"],
+        "must_not_contain_strings": ["3090Ti requires fewer", "3090Ti needs fewer"]
+      },
+      "ground_truth_note": "Correct: A100 (2 GPUs) beats 3090Ti (6 GPUs). Answer must name A100 and indicate 2 or 'fewer'.",
+      "source": "p.3, Efficiency Analysis"
+    },
+    {
+      "id": "SCIENTIFIC_3",
+      "difficulty": 3,
+      "tier_name": "aggregation",
+      "label": "Count of top-level optimization categories",
+      "query": "According to the taxonomy in this survey, how many top-level optimization categories (levels) are presented for efficient LLM inference?",
+      "expected": {
+        "scalar_checks": [
+          {
+            "name": "category_count",
+            "expected": 3,
+            "tolerance_abs": 0,
+            "path_hints": ["count", "categories", "levels"]
+          }
+        ],
+        "must_contain_strings_any_cell": ["3", "three"]
+      },
+      "ground_truth_note": "3: data-level, model-level, system-level. Scalar match is sufficient; enumeration is bonus.",
+      "source": "p.4, end of section after Table 1; Fig. 4"
+    },
+    {
+      "id": "SCIENTIFIC_4",
+      "difficulty": 4,
+      "tier_name": "multi_step",
+      "label": "VRAM math: 140 GB LLaMA-2-70B / 80 GB A100",
+      "query": "LLaMA-2-70B model weights in FP16 format require 140 GB of VRAM. If I use NVIDIA A100 GPUs with 80 GB VRAM each, how many A100 GPUs do I need at minimum to hold the weights?",
+      "expected": {
+        "scalar_checks": [
+          {
+            "name": "min_a100_count",
+            "expected": 2,
+            "tolerance_abs": 0,
+            "path_hints": ["count", "gpus", "a100", "minimum"]
+          }
+        ],
+        "must_contain_strings_any_cell": ["2"]
+      },
+      "ground_truth_note": "140/80 = 1.75, round up = 2. The paper directly states '2 NVIDIA A100 GPUs'. Either retrieval or derivation is valid.",
+      "source": "p.3, Efficiency Analysis"
+    },
+    {
+      "id": "SCIENTIFIC_5",
+      "difficulty": 5,
+      "tier_name": "abstention",
+      "label": "Learning rate recommendation (NOT in survey)",
+      "query": "What learning rate does this paper recommend for fine-tuning the inference optimization methods?",
+      "expected": {
+        "must_abstain": true,
+        "abstention_phrases_any": [
+          "not in the document",
+          "not available in the",
+          "cannot find",
+          "not covered",
+          "I don't have",
+          "no information",
+          "not mentioned",
+          "no mention of",
+          "does not recommend",
+          "does not specify",
+          "not specified",
+          "survey"
+        ],
+        "hallucination_red_flags": [
+          "1e-4",
+          "1e-5",
+          "5e-5",
+          "3e-4",
+          "2e-5",
+          "0.0001",
+          "0.001",
+          "0.01",
+          "learning rate of",
+          "recommended learning rate"
+        ]
+      },
+      "source": "NOT IN CORPUS — abstention test (survey doesn't recommend training hyperparams)",
+      "critical": true,
+      "critical_reason": "Tests 0% hallucination on plausibly-answerable question. Any specific learning rate = hallucination from training priors, not retrieval."
+    }
+  ]
+}

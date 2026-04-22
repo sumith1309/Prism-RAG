@@ -1,0 +1,140 @@
+{
+  "label": "ood_preA_smoke",
+  "wall_seconds": 37.0,
+  "passed": 2,
+  "total": 5,
+  "domains": [
+    {
+      "domain": "code_docs",
+      "doc_ids": [
+        "35ce94fec643",
+        "a9682e99e235"
+      ],
+      "passed": 2,
+      "total": 5,
+      "queries": [
+        {
+          "id": "CODE_DOCS_1",
+          "difficulty": 1,
+          "tier_name": "extraction",
+          "label": "Enum for predefined path param values",
+          "query": "What Python class does FastAPI recommend using for predefined path parameter values?",
+          "passed": false,
+          "checks": [
+            [
+              false,
+              "must_contain_all: 'str' \u2717"
+            ],
+            [
+              true,
+              "must_contain_all: 'Enum' \u2713"
+            ],
+            [
+              true,
+              "must_contain_any (1/1): ['Enum']"
+            ]
+          ],
+          "latency_s": 8.3,
+          "answer_preview": "",
+          "error": null
+        },
+        {
+          "id": "CODE_DOCS_2",
+          "difficulty": 2,
+          "tier_name": "comparison",
+          "label": "Which have defaults \u2014 path vs query parameters",
+          "query": "Which have default values \u2014 path parameters or query parameters?",
+          "passed": true,
+          "checks": [
+            [
+              true,
+              "must_contain_all: 'query parameters' \u2713"
+            ],
+            [
+              true,
+              "must_contain_all: 'default' \u2713"
+            ],
+            [
+              true,
+              "must_not_contain: 'path parameters have default' \u2713 absent"
+            ],
+            [
+              true,
+              "must_not_contain: 'path parameters can have defaults' \u2713 absent"
+            ]
+          ],
+          "latency_s": 8.2,
+          "answer_preview": "",
+          "error": null
+        },
+        {
+          "id": "CODE_DOCS_3",
+          "difficulty": 3,
+          "tier_name": "aggregation",
+          "label": "Count of benefits in Path Params Recap",
+          "query": "In the Recap section of the Path Parameters tutorial, how many benefits of using Python type declarations are listed?",
+          "passed": false,
+          "checks": [
+            [
+              true,
+              "must_contain_any (1/1): ['4']"
+            ],
+            [
+              false,
+              "any_of_list (0/4): []"
+            ],
+            [
+              true,
+              "scalar 'benefit_count' = 4 \u2713 found"
+            ]
+          ],
+          "latency_s": 5.8,
+          "answer_preview": "",
+          "error": null
+        },
+        {
+          "id": "CODE_DOCS_4",
+          "difficulty": 4,
+          "tier_name": "multi_step",
+          "label": "path convertor behavior + URL resolution",
+          "query": "I define a path `/files/{file_path:path}`. What does the `:path` convertor do, and what would `file_path` be if I hit the URL `/files/home/user/data.txt`?",
+          "passed": true,
+          "checks": [
+            [
+              true,
+              "must_contain_all: 'home/user/data.txt' \u2713"
+            ],
+            [
+              true,
+              "must_contain_any (1/3): ['path']"
+            ]
+          ],
+          "latency_s": 6.2,
+          "answer_preview": "",
+          "error": null
+        },
+        {
+          "id": "CODE_DOCS_5",
+          "difficulty": 5,
+          "tier_name": "abstention",
+          "label": "FastAPI 2.0 release date (NOT in docs)",
+          "query": "What is the release date for FastAPI version 2.0?",
+          "passed": false,
+          "checks": [
+            [
+              false,
+              "abstained (\u2717 NO refusal phrase)"
+            ],
+            [
+              false,
+              "hallucination check (\u2717 FLAGGED: ['2026'])"
+            ]
+          ],
+          "latency_s": 8.4,
+          "answer_preview": "",
+          "error": null
+        }
+      ]
+    }
+  ]
+}

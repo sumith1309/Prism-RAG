@@ -1,0 +1,398 @@
+{
+  "label": "ood_scientific_preA",
+  "wall_seconds": 106.3,
+  "passed": 4,
+  "total": 5,
+  "domains": [
+    {
+      "domain": "scientific",
+      "doc_ids": [
+        "08fa72ee0ea4"
+      ],
+      "passed": 4,
+      "total": 5,
+      "queries": [
+        {
+          "id": "SCIENTIFIC_1",
+          "difficulty": 1,
+          "tier_name": "extraction",
+          "label": "LLaMA-2-70B parameter count",
+          "query": "How many billion parameters does the LLaMA-2-70B model have?",
+          "passed": true,
+          "checks": [
+            [
+              true,
+              "must_contain_any (1/1): ['70']"
+            ]
+          ],
+          "latency_s": 7.1,
+          "answer_preview": "",
+          "events_seen": [
+            "thread",
+            "analytics",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "analytics",
+            "thread_id": "2e0496986b5b",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 0,
+              "rerank": 0,
+              "generate": 7075,
+              "total": 7088
+            },
+            "tokens": {
+              "prompt": 0,
+              "completion": 0
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0
+          },
+          "analytics_event": {
+            "ok": true,
+            "result": 70.0,
+            "result_type": "scalar",
+            "chart": null,
+            "error": null,
+            "code": "result = 70.0",
+            "doc_id": "d1c60a9ac7a8",
+            "filename": "00_README_and_Schema.xlsx + 01_Departments.xlsx + 02_Employees.xlsx + 03_Salary_Records.xlsx + 04_Customers.xlsx + 05_Products_Services.xlsx + 06_Incidents.xlsx + 07_Vendors.xlsx + 08_Financial_Transa",
+            "tables_joined": [
+              "departments",
+              "employees",
+              "salary_records",
+              "customers",
+              "products_services",
+              "incidents",
+              "vendors",
+              "financial_transactions",
+              "training_compliance",
+              "assets_licenses",
+              "total_time_card_20260317100819"
+            ],
+            "validator_concern": null
+          },
+          "error": null
+        },
+        {
+          "id": "SCIENTIFIC_2",
+          "difficulty": 2,
+          "tier_name": "comparison",
+          "label": "A100 vs 3090Ti GPU count for LLaMA-2-70B",
+          "query": "Which requires fewer GPUs to deploy LLaMA-2-70B in FP16 \u2014 RTX 3090Ti (24 GB VRAM each) or NVIDIA A100 (80 GB VRAM each)?",
+          "passed": true,
+          "checks": [
+            [
+              true,
+              "must_contain_all: 'A100' \u2713"
+            ],
+            [
+              true,
+              "must_contain_any (2/2): ['2', 'fewer']"
+            ],
+            [
+              true,
+              "must_not_contain: '3090Ti requires fewer' \u2713 absent"
+            ],
+            [
+              true,
+              "must_not_contain: '3090Ti needs fewer' \u2713 absent"
+            ]
+          ],
+          "latency_s": 10.7,
+          "answer_preview": "",
+          "events_seen": [
+            "thread",
+            "analytics",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "analytics",
+            "thread_id": "f3633ca68b14",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 0,
+              "rerank": 0,
+              "generate": 10730,
+              "total": 10740
+            },
+            "tokens": {
+              "prompt": 0,
+              "completion": 0
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0
+          },
+          "analytics_event": {
+            "ok": true,
+            "result": {
+              "columns": [
+                "model",
+                "estimated_model_memory_gb",
+                "rtx_3090ti_vram_gb_each",
+                "rtx_3090ti_gpus_required",
+                "a100_vram_gb_each",
+                "a100_gpus_required",
+                "requires_fewer_gpus"
+              ],
+              "rows": [
+                {
+                  "model": "LLaMA-2-70B FP16",
+                  "estimated_model_memory_gb": 140.0,
+                  "rtx_3090ti_vram_gb_each": 24,
+                  "rtx_3090ti_gpus_required": 6,
+                  "a100_vram_gb_each": 80,
+                  "a100_gpus_required": 2,
+                  "requires_fewer_gpus": "NVIDIA A100"
+                }
+              ],
+              "total_rows": 1,
+              "truncated": false
+            },
+            "result_type": "table",
+            "chart": null,
+            "error": null,
+            "code": "llama_params_b = 70\nfp16_bytes_per_param = 2\ntotal_model_gb = llama_params_b * 1_000_000_000 * fp16_bytes_per_param / 1_000_000_000\n\nrtx_3090ti_vram_gb = 24\na100_vram_gb = 80  # Policy fact: Each A100 GPU has 80GB of memory (TechNova_Platform_Architecture.pdf)\n\nrtx_3090ti_gpus_required = int(np.ceil(total_model_gb / rtx_3090ti_vram_gb))\na100_gpus_required = int(np.ceil(total_model_gb / a100_vram_gb))\n\nfewer_gpu_option = 'NVIDIA A100' if a100_gpus_required < rtx_3090ti_gpus_required else 'RTX 3090Ti'\n\nresult = pd.DataFrame({\n    'model': ['LLaMA-2-70B FP16'],\n    'estimated_model_memory_gb': [round(total_model_gb, 2)],\n    'rtx_3090ti_vram_gb_each': [rtx_3090ti_vram_gb],\n    'rtx_3090ti_gpus_required': [rtx_3090ti_gpus_required],\n    'a100_vram_gb_each': [a100_vram_gb],\n    'a100_gpus_required': [a100_gpus_required],\n    'requires_fewer_gpus': [fewer_gpu_option]\n})",
+            "doc_id": "d1c60a9ac7a8",
+            "filename": "00_README_and_Schema.xlsx + 01_Departments.xlsx + 02_Employees.xlsx + 03_Salary_Records.xlsx + 04_Customers.xlsx + 05_Products_Services.xlsx + 06_Incidents.xlsx + 07_Vendors.xlsx + 08_Financial_Transa",
+            "tables_joined": [
+              "departments",
+              "employees",
+              "salary_records",
+              "customers",
+              "products_services",
+              "incidents",
+              "vendors",
+              "financial_transactions",
+              "training_compliance",
+              "assets_licenses",
+              "total_time_card_20260317100819"
+            ],
+            "validator_concern": null
+          },
+          "error": null
+        },
+        {
+          "id": "SCIENTIFIC_3",
+          "difficulty": 3,
+          "tier_name": "aggregation",
+          "label": "Count of top-level optimization categories",
+          "query": "According to the taxonomy in this survey, how many top-level optimization categories (levels) are presented for efficient LLM inference?",
+          "passed": true,
+          "checks": [
+            [
+              true,
+              "must_contain_any (1/2): ['3']"
+            ],
+            [
+              true,
+              "scalar 'category_count' = 3 \u2713 found"
+            ]
+          ],
+          "latency_s": 7.9,
+          "answer_preview": "",
+          "events_seen": [
+            "thread",
+            "analytics",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "analytics",
+            "thread_id": "ac695d7fed4a",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 0,
+              "rerank": 0,
+              "generate": 7870,
+              "total": 7882
+            },
+            "tokens": {
+              "prompt": 0,
+              "completion": 0
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0
+          },
+          "analytics_event": {
+            "ok": true,
+            "result": {
+              "top_level_optimization_categories": 8
+            },
+            "result_type": "scalar",
+            "chart": null,
+            "error": null,
+            "code": "result = {\"top_level_optimization_categories\": 8}",
+            "doc_id": "d1c60a9ac7a8",
+            "filename": "00_README_and_Schema.xlsx + 01_Departments.xlsx + 02_Employees.xlsx + 03_Salary_Records.xlsx + 04_Customers.xlsx + 05_Products_Services.xlsx + 06_Incidents.xlsx + 07_Vendors.xlsx + 08_Financial_Transa",
+            "tables_joined": [
+              "departments",
+              "employees",
+              "salary_records",
+              "customers",
+              "products_services",
+              "incidents",
+              "vendors",
+              "financial_transactions",
+              "training_compliance",
+              "assets_licenses",
+              "total_time_card_20260317100819"
+            ],
+            "validator_concern": null
+          },
+          "error": null
+        },
+        {
+          "id": "SCIENTIFIC_4",
+          "difficulty": 4,
+          "tier_name": "multi_step",
+          "label": "VRAM math: 140 GB LLaMA-2-70B / 80 GB A100",
+          "query": "LLaMA-2-70B model weights in FP16 format require 140 GB of VRAM. If I use NVIDIA A100 GPUs with 80 GB VRAM each, how many A100 GPUs do I need at minimum to hold the weights?",
+          "passed": true,
+          "checks": [
+            [
+              true,
+              "must_contain_any (1/1): ['2']"
+            ],
+            [
+              true,
+              "scalar 'min_a100_count' = 2 \u2713 found"
+            ]
+          ],
+          "latency_s": 9.0,
+          "answer_preview": "",
+          "events_seen": [
+            "thread",
+            "analytics",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "analytics",
+            "thread_id": "2d69b7c41cbc",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 0,
+              "rerank": 0,
+              "generate": 8942,
+              "total": 8950
+            },
+            "tokens": {
+              "prompt": 0,
+              "completion": 0
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0
+          },
+          "analytics_event": {
+            "ok": true,
+            "result": {
+              "model": "LLaMA-2-70B",
+              "weights_format": "FP16",
+              "weights_vram_gb": 140,
+              "gpu_type": "NVIDIA A100",
+              "vram_per_gpu_gb": 80,
+              "minimum_gpus_needed": 2
+            },
+            "result_type": "scalar",
+            "chart": null,
+            "error": null,
+            "code": "weights_gb = 140\nvram_per_gpu_gb = 80\ngpus_needed = int(np.ceil(weights_gb / vram_per_gpu_gb))\nresult = {\n    'model': 'LLaMA-2-70B',\n    'weights_format': 'FP16',\n    'weights_vram_gb': weights_gb,\n    'gpu_type': 'NVIDIA A100',\n    'vram_per_gpu_gb': vram_per_gpu_gb,\n    'minimum_gpus_needed': gpus_needed\n}",
+            "doc_id": "d1c60a9ac7a8",
+            "filename": "00_README_and_Schema.xlsx + 01_Departments.xlsx + 02_Employees.xlsx + 03_Salary_Records.xlsx + 04_Customers.xlsx + 05_Products_Services.xlsx + 06_Incidents.xlsx + 07_Vendors.xlsx + 08_Financial_Transa",
+            "tables_joined": [
+              "departments",
+              "employees",
+              "salary_records",
+              "customers",
+              "products_services",
+              "incidents",
+              "vendors",
+              "financial_transactions",
+              "training_compliance",
+              "assets_licenses",
+              "total_time_card_20260317100819"
+            ],
+            "validator_concern": null
+          },
+          "error": null
+        },
+        {
+          "id": "SCIENTIFIC_5",
+          "difficulty": 5,
+          "tier_name": "abstention",
+          "label": "Learning rate recommendation (NOT in survey)",
+          "query": "What learning rate does this paper recommend for fine-tuning the inference optimization methods?",
+          "passed": false,
+          "checks": [
+            [
+              false,
+              "abstained (\u2717 NO refusal phrase)"
+            ],
+            [
+              true,
+              "hallucination check (\u2713 clean)"
+            ]
+          ],
+          "latency_s": 6.3,
+          "answer_preview": "",
+          "events_seen": [
+            "thread",
+            "analytics",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "analytics",
+            "thread_id": "8c68e6119e66",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 0,
+              "rerank": 0,
+              "generate": 6274,
+              "total": 6285
+            },
+            "tokens": {
+              "prompt": 0,
+              "completion": 0
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0
+          },
+          "analytics_event": {
+            "ok": true,
+            "result": {
+              "answer": null,
+              "context": "The available uploaded paper facts cover inference efficiency taxonomy and hardware requirements, but they do not include any stated recommended learning rate for fine-tuning inference optimization methods in the provided corpus facts.",
+              "source": "efficient_inference_survey.pdf (available extracted facts only)"
+            },
+            "result_type": "scalar",
+            "chart": null,
+            "error": null,
+            "code": "result = {\n    'answer': None,\n    'context': 'The available uploaded paper facts cover inference efficiency taxonomy and hardware requirements, but they do not include any stated recommended learning rate for fine-tuning inference optimization methods in the provided corpus facts.',\n    'source': 'efficient_inference_survey.pdf (available extracted facts only)'\n}",
+            "doc_id": "d1c60a9ac7a8",
+            "filename": "00_README_and_Schema.xlsx + 01_Departments.xlsx + 02_Employees.xlsx + 03_Salary_Records.xlsx + 04_Customers.xlsx + 05_Products_Services.xlsx + 06_Incidents.xlsx + 07_Vendors.xlsx + 08_Financial_Transa",
+            "tables_joined": [
+              "departments",
+              "employees",
+              "salary_records",
+              "customers",
+              "products_services",
+              "incidents",
+              "vendors",
+              "financial_transactions",
+              "training_compliance",
+              "assets_licenses",
+              "total_time_card_20260317100819"
+            ],
+            "validator_concern": null
+          },
+          "error": null
+        }
+      ]
+    }
+  ]
+}

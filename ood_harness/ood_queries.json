@@ -1,0 +1,78 @@
+{
+  "description": "Out-of-distribution RAG harness. 8 domains × 5 queries per difficulty tier. Tests universal RAG claim separately from TechNova-tuned golden harness.",
+  "version": "0.1-scaffolding",
+  "created": "2026-04-22",
+  "status": "SCAFFOLDING — populate domain folders before running",
+  "corpus": "Multi-domain: medical, legal, scientific, financial, personal, code_docs, news, multilingual",
+  "difficulty_tiers": {
+    "1_extraction": "Single fact lookup",
+    "2_comparison": "Compare 2+ facts within doc",
+    "3_aggregation": "Sum/count/average across doc sections",
+    "4_multi_step": "Chain of 2-3 derivations",
+    "5_abstention": "Answer NOT in corpus — tests 0% hallucination property"
+  },
+  "buckets": {
+    "medical": "Clinical trial / drug approval papers (PubMed Central, FDA)",
+    "legal": "Commercial contracts (CUAD dataset)",
+    "scientific": "arXiv AI/ML papers",
+    "financial": "SEC 10-K filings",
+    "personal": "Synthetic personal docs (resume, rent agreement, etc.)",
+    "code_docs": "Open-source project docs (FastAPI / Django / React)",
+    "news": "News articles with concrete facts",
+    "multilingual": "Hindi starter; expand later"
+  },
+  "tolerances": {
+    "strict_scalar_abs": 0.0,
+    "strict_scalar_pct": 2.0,
+    "near_miss_abs_pct": 5.0,
+    "near_miss_row_delta": 1,
+    "abstention_must_contain_any": [
+      "not in the document",
+      "not available in the",
+      "cannot find",
+      "not covered by",
+      "I don't have",
+      "no information"
+    ]
+  },
+  "scoring": {
+    "per_domain_max": 5,
+    "total_max": 40,
+    "ship_gate": "OOD delta > 0 AND golden harness unchanged",
+    "abstention_failure_is_critical": true
+  },
+  "queries": [
+    {
+      "_comment": "TEMPLATE — duplicate this block and fill once each domain folder has a source doc.",
+      "id": "CODE_DOCS_1_extraction",
+      "bucket": "code_docs",
+      "difficulty": 1,
+      "label": "FastAPI — path parameter definition",
+      "query": "In FastAPI, how do you define a path parameter?",
+      "expected": {
+        "must_contain_strings_any_cell": ["@app.get", "{item_id}", "async def"]
+      },
+      "source": "ood_harness/domains/code_docs/doc/fastapi_tutorial.md",
+      "status": "placeholder"
+    },
+    {
+      "id": "CODE_DOCS_5_abstention",
+      "bucket": "code_docs",
+      "difficulty": 5,
+      "label": "FastAPI — future roadmap (not in docs)",
+      "query": "What is the roadmap for FastAPI 1.0?",
+      "expected": {
+        "must_abstain": true,
+        "must_not_contain_strings": ["roadmap", "version 1.0", "Q1 2026"]
+      },
+      "source": "not in corpus",
+      "status": "placeholder"
+    }
+  ],
+  "todo": [
+    "Populate domains/code_docs/ as the template domain",
+    "Run baseline against current system to get OOD baseline score",
+    "Fill remaining 7 domains",
+    "Commit ood_baseline_preA.json as reference point"
+  ]
+}

@@ -1,0 +1,103 @@
+{
+  "domain": "code_docs",
+  "description": "FastAPI tutorial (path-params.md + query-params.md) — 5 queries across difficulty tiers 1-5",
+  "docs": [
+    "doc/path-params.md",
+    "doc/query-params.md"
+  ],
+  "queries": [
+    {
+      "id": "CODE_DOCS_1",
+      "difficulty": 1,
+      "tier_name": "extraction",
+      "label": "Enum for predefined path param values",
+      "query": "What Python class does FastAPI recommend using for predefined path parameter values?",
+      "expected": {
+        "must_contain_strings_any_cell": ["Enum"]
+      },
+      "ground_truth_note": "Correct answer is 'Enum'. Extended fidelity answer would mention 'subclass of str and Enum' but a scalar 'Enum' answer is still correct — ground truth accepts either.",
+      "source": "path-params.md:133-143"
+    },
+    {
+      "id": "CODE_DOCS_2",
+      "difficulty": 2,
+      "tier_name": "comparison",
+      "label": "Which have defaults — path vs query parameters",
+      "query": "Which have default values — path parameters or query parameters?",
+      "expected": {
+        "must_contain_strings_all": ["query parameters", "default"],
+        "must_not_contain_strings": [
+          "path parameters have default",
+          "path parameters can have defaults"
+        ]
+      },
+      "source": "query-params.md:31-35"
+    },
+    {
+      "id": "CODE_DOCS_3",
+      "difficulty": 3,
+      "tier_name": "aggregation",
+      "label": "Count of benefits in Path Params Recap",
+      "query": "In the Recap section of the Path Parameters tutorial, how many benefits of using Python type declarations are listed?",
+      "expected": {
+        "scalar_checks": [
+          {
+            "name": "benefit_count",
+            "expected": 4,
+            "tolerance_abs": 0,
+            "path_hints": ["count", "benefits", "number_of_benefits"]
+          }
+        ],
+        "must_contain_strings_any_cell": ["4"]
+      },
+      "ground_truth_note": "Correct answer is the scalar 4. Answers that also enumerate (Editor support, Data parsing, Data validation, Automatic documentation) are MORE informative but not more CORRECT — ground truth is the count.",
+      "source": "path-params.md:240-247"
+    },
+    {
+      "id": "CODE_DOCS_4",
+      "difficulty": 4,
+      "tier_name": "multi_step",
+      "label": "path convertor behavior + URL resolution",
+      "query": "I define a path `/files/{file_path:path}`. What does the `:path` convertor do, and what would `file_path` be if I hit the URL `/files/home/user/data.txt`?",
+      "expected": {
+        "must_contain_strings_all": ["home/user/data.txt"],
+        "must_contain_strings_any_cell": ["match any", "Starlette", "path"]
+      },
+      "source": "path-params.md:202-228"
+    },
+    {
+      "id": "CODE_DOCS_5",
+      "difficulty": 5,
+      "tier_name": "abstention",
+      "label": "FastAPI 2.0 release date (NOT in docs)",
+      "query": "What is the release date for FastAPI version 2.0?",
+      "expected": {
+        "must_abstain": true,
+        "abstention_phrases_any": [
+          "not in the document",
+          "not available in the",
+          "cannot find",
+          "not covered",
+          "I don't have",
+          "no information",
+          "not mentioned",
+          "no mention of"
+        ],
+        "hallucination_red_flags": [
+          "2024",
+          "2025",
+          "2026",
+          "Q1",
+          "Q2",
+          "Q3",
+          "Q4",
+          "version 2.0 was released",
+          "FastAPI 2.0 was released"
+        ]
+      },
+      "source": "NOT IN CORPUS — abstention test",
+      "critical": true,
+      "critical_reason": "Tests 0% hallucination property on out-of-distribution query. Any specific date = hallucination = critical fail."
+    }
+  ]
+}

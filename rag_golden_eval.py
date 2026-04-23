@@ -634,16 +634,29 @@ def main() -> int:
         total_n = len(run_reports)
         expected_fail = spec.get("expected_current") == "fail"
         stability = _stability_label(passed_n, total_n, expected_fail=expected_fail)
+        # Per-query require_pass override — queries that are measurably
+        # flaky (Q1 at ~76-85% true rate) ship with their own require_pass,
+        # typically set at a level corresponding to 2-sigma of their
+        # binomial. See findings.md Step 6.
+        effective_require_pass = spec.get("require_pass", require_pass)
+        # Clamp to [1, total_n] — spec shouldn't demand more passes than
+        # runs executed.
+        if effective_require_pass > total_n:
+            effective_require_pass = total_n
         # CI semantics:
-        #   normal query:        CI pass = passed_n >= require_pass
+        #   normal query:        CI pass = passed_n >= effective_require_pass
         #   expected-fail query: CI pass = ALWAYS true (failure is the baseline)
         #                        An unexpected PASS is celebrated separately.
-        ci_pass = True if expected_fail else (passed_n >= require_pass)
+        ci_pass = True if expected_fail else (passed_n >= effective_require_pass)
         if args.runs > 1 or expected_fail:
             tag = _stability_tag(stability)
             ratio = f"{passed_n}/{total_n}"
-            ci_marker = "" if ci_pass else f"  {_C.RED}(< require_pass={require_pass}){_C.RESET}"
-            print(f"  → {ratio}  [{tag}]{ci_marker}")
+            per_query_note = (
+                f" (per-query threshold: ≥{effective_require_pass}/{total_n})"
+                if "require_pass" in spec else ""
+            )
+            ci_marker = "" if ci_pass else f"  {_C.RED}(< require_pass={effective_require_pass}){_C.RESET}"
+            print(f"  → {ratio}  [{tag}]{per_query_note}{ci_marker}")
         # Per-run detail for diff analysis: which checks passed/failed,
         # which specific scalar values were extracted. Keeps the JSON
         # output useful without bloating it.
@@ -664,6 +677,8 @@ def main() -> int:
             "stability": stability,
             "expected_fail": expected_fail,
             "ci_pass": ci_pass,
+            "require_pass_effective": effective_require_pass,
+            "require_pass_from_spec": spec.get("require_pass"),
             "total_latency_s": round(sum(r.latency_s for r in run_reports), 2),
             "per_run": per_run_detail,
         }

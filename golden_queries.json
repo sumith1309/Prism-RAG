@@ -27,6 +27,8 @@
           "NVIDIA (DGX)", "VendorConnect Solutions", "Engineering"
         ]
       },
+      "require_pass": 2,
+      "require_pass_rationale": "Measured ~76-85% true pass rate across 33 samples (Q1_x6.json, Q1_x6_post_B.json, Q1_x6_flag_OFF.json, Q1_x6_flag_ON_B.json, and 3×20 runs). LLM non-determinism on the aggregate-row assertion (sometimes emits rows=0 or 154 instead of 22). With --runs 3, require_pass=2 matches the binomial expectation; earlier 3/3 readings in pre_phase3.json / post_phase3_z.json were lucky samples, not stable-pass. See findings.md 'B — SHIPPED' section.",
       "source": "SOLUTIONS §1"
     },
     {

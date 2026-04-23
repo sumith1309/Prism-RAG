@@ -323,7 +323,7 @@ do not ship, diagnose.
 
 ---
 
-## B — attempted 2026-04-23 evening, REVERTED for tomorrow
+## B — SHIPPED 2026-04-23 late evening (after A/B test)
 
 **What shipped in the attempt (local-only, not committed):**
 `_scoped_skip_analytics = _routing_scoped and _tabular_count == 0`
@@ -362,17 +362,33 @@ edits to clean-A state. A (`efac794`) stays on origin/main.
   sanity check
 - `Q1_x6_post_B.json` at repo root — 4/6 Q1 result
 
-**Tomorrow's plan (locked):**
-1. Re-apply B's chat.py change (the 3-guard + scoped_skip_analytics block)
-2. Run Q1 × 6 with FLAG OFF first. Establishes the current-LLM-state Q1
-   pass rate independent of A or B. Expected: 4-6/6 in the 83% regime.
-3. Run Q1 × 6 with FLAG ON (= B active). If indistinguishable from
-   flag-off, B is mechanically safe.
-4. Run full 3×20 golden post-B. If golden meeting-CI is within noise of
-   the 83% Q1 rate (i.e. 8-9/20 typical), ship B.
-5. Update `golden_queries.json` to mark Q1 as a ~83%-pass flaky query
-   (adjust `require_pass` to 2 of 3 or similar) — separate change,
-   separate commit. Fixes the gate's false assumption.
-6. Queue Finding 3 (scorer edges on grounded path) as next patch after
-   B lands.
+**A/B test evidence (locked 2026-04-23 late evening):**
+1. Q1 × 6 FLAG OFF (`Q1_x6_flag_OFF.json`): **5/6.** Control baseline —
+   current LLM state, A code inert (empty doc_ids), B code not present.
+2. B re-applied to chat.py (3-guard block + `_scoped_skip_analytics`).
+3. Q1 × 6 FLAG ON (`Q1_x6_flag_ON_B.json`): **5/6.** Treatment — B active.
+4. **A/B delta: 5/6 vs 5/6 = identical.** B is mechanically safe on Q1
+   as the gate log predicts (`[scoped-routing] SKIP` on all 6 runs,
+   bit-identical to flag-off).
+5. Q1 combined across all post-A + post-B + control samples: **25/33 =
+   76% pass rate.** Previously estimated 83%; updated to 76% with more
+   data. Q1 is genuinely borderline-flaky; earlier "stable-pass" was
+   sample bias.
+6. Full 3×20 golden post-B (`post_B_golden.json`): **8/20 meeting CI.**
+   Diff vs pre-A (`post_phase3_z.json` at 9/20): Q1 3/3→1/3, Q3 3/3→2/3
+   (both LLM noise on borderline queries), with offsetting improvements
+   Q4 2/3→3/3, E2 2/3→3/3, Q5 0/3→1/3. Net-zero in noise-band math.
+7. Ship gate cleared: 8/20 ∈ the 7-9/20 band pre-accepted for Q1's
+   ~76-83% true rate.
+
+**Shipped.**
+
+**Next patches queued:**
+- **Step 6: golden_queries.json.** Mark Q1 (and likely Q3) as flaky
+  with `require_pass: 2` of 3 so the CI gate stops treating borderline
+  queries as stable-pass. Separate commit.
+- **Step 7: Finding 3 scorer edges.** Fix grounded-path scalar_check
+  fallback + abstention-phrase tense variants + hallucination-red-flag
+  negation handling. Should move OOD 5/10 → 8-10/10 on the same system
+  behavior (scorer-only patch).
 

@@ -1817,7 +1817,20 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
             except Exception:
                 pass  # best-effort follow-up detection
 
-        if _is_analytics_followup or _is_multi_table(req.query, _tabular_count):
+        # Phase B: scope-aware skip-guard for all three analytics entry points
+        # (multi-table, ambiguous, single-table). Bypass analytics entirely
+        # when the caller scoped to non-tabular docs.
+        _scoped_skip_analytics = _routing_scoped and _tabular_count == 0
+        if _scoped_skip_analytics:
+            print(
+                f"[scoped-routing] SKIP-ANALYTICS: routing_scoped=True, "
+                f"tabular_count=0 — bypassing all analytics paths "
+                f"(multi-table, ambiguous, single-table)",
+                flush=True,
+            )
+
+        if (not _scoped_skip_analytics) and (
+                _is_analytics_followup or _is_multi_table(req.query, _tabular_count)):
             _multi_docs = await _find_analytics_docs(
                 _combined_query, req.doc_ids or None, user.level, user.role
             )
@@ -1947,7 +1960,7 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                     return
 
         # Ambiguous: data and doc signals are close — ask the user
-        if _data_intent == "ambiguous":
+        if _data_intent == "ambiguous" and not _scoped_skip_analytics:
             target_doc = await _find_analytics_doc(
                 req.query, req.doc_ids or None, user.level, user.role
             )
@@ -1984,11 +1997,16 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
                 }
                 return
 
-        if _data_intent == "data":
+        if _data_intent == "data" and not _scoped_skip_analytics:
             # NOTE: the primary multi-table path runs EARLIER (right after
             # _data_intent classification, before this block). This block
             # is now the single-table path for queries that are clearly
             # data-intent but don't match multi-table criteria.
+            # Phase B: _scoped_skip_analytics=True bypasses this path when
+            # the caller scoped to non-tabular docs (no Excel/CSV in
+            # req.doc_ids). find_target_doc has an `if scoped:` fallback
+            # to global at analytics_agent.py:2374 that would otherwise
+            # leak foreign docs.
             analytics_result = None
             target_doc = None
             if analytics_result is None:

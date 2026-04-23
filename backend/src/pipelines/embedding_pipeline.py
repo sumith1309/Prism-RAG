@@ -286,6 +286,18 @@ def ingest_file(
         # Never block ingestion on a fact-extraction hiccup.
         print(f"[fact_extractor] non-fatal: {exc}")
 
+    # U1a step 3: schema profile for tabular uploads. Always-on save; the
+    # consumer (analytics_agent DYNAMIC CORPUS SCHEMA block) is flag-gated
+    # at query time (PRISM_DYNAMIC_PROFILER=1, landing in step 5). Profile
+    # persistence is harmless until then — rows sit in `tableprofilerow`
+    # unused. Best-effort, mirrors fact-extractor's error policy.
+    try:
+        _run_schema_profiling(
+            doc_id=doc_id, filename=filename, stored_path=stored_path,
+        )
+    except Exception as exc:
+        print(f"[schema_profiler] non-fatal: {exc}")
+
     return doc
 
 
@@ -317,6 +329,80 @@ def _run_fact_extraction(*, doc_id: str, filename: str, full_text: str) -> None:
         future.result(timeout=60)
     else:
         asyncio.run(_do())
+
+
+def _run_schema_profiling(*, doc_id: str, filename: str, stored_path) -> None:
+    """Profile a tabular upload and persist the TableProfile JSON.
+
+    Excel — pick the LARGEST sheet (rows × cols) rather than the first.
+    Many real-world workbooks include a 'Schema_Notes' / 'README' sheet
+    at index 0 with metadata; the actual data sits in a later sheet.
+    Picking the largest sheet gets the data table reliably. CSV reads
+    the whole file directly. Multi-sheet-as-multi-profile support is
+    deferred — current schema is 1:1 doc_id → profile.
+
+    Profiler is synchronous + deterministic + LLM-free, so no event-
+    loop handling needed (unlike fact extraction).
+    """
+    from pathlib import Path
+
+    import pandas as pd
+    from src.pipelines import schema_profiler
+
+    ext = Path(stored_path).suffix.lower()
+    if ext not in {".xlsx", ".xls", ".csv"}:
+        return
+
+    if ext in {".xlsx", ".xls"}:
+        # Many workbooks include a metadata sheet ('Schema_Notes', 'README')
+        # as the first tab. Heuristic: (1) exclude sheets with metadata-ish
+        # names from the candidate pool unless ALL sheets look metadata-ish,
+        # (2) within the pool, prefer the sheet with the most COLUMNS
+        # (data tables are wide; notes are 2-3 cols), tiebreak by row count.
+        # Departments Schema_Notes is 22×3 = 66 cells, Departments data is
+        # 12×5 = 60 cells — cells alone picks the wrong sheet, columns
+        # picks the right one.
+        _META_NAMES = {
+            "schema_notes", "schema", "notes", "readme", "info",
+            "help", "about", "cover", "instructions", "legend",
+        }
+        xl = pd.ExcelFile(stored_path)
+        candidates = []
+        for sheet_name in xl.sheet_names:
+            candidate = pd.read_excel(stored_path, sheet_name=sheet_name)
+            candidates.append((sheet_name, candidate))
+        non_meta = [
+            (sn, d) for sn, d in candidates
+            if sn.lower() not in _META_NAMES
+        ]
+        pool = non_meta if non_meta else candidates
+        best_sheet, df = max(
+            pool,
+            key=lambda pair: (len(pair[1].columns), len(pair[1])),
+        )
+        sheet_note = f" (sheet={best_sheet!r})" if len(xl.sheet_names) > 1 else ""
+    else:
+        df = pd.read_csv(stored_path)
+        sheet_note = ""
+
+    if df is None or df.empty:
+        print(f"[schema_profiler] {filename}: empty tabular file, skipped")
+        return
+
+    profile = schema_profiler.profile_table(df, filename)
+    store.save_table_profile(
+        doc_id=doc_id,
+        filename=filename,
+        table_id=profile.table_id,
+        row_count=profile.row_count,
+        column_count=profile.column_count,
+        profile_json=profile.to_json(),
+    )
+    print(
+        f"[schema_profiler] {filename}: saved profile "
+        f"({profile.column_count} cols, {profile.row_count} rows, "
+        f"table_id={profile.table_id}){sheet_note}"
+    )
 
 
 def set_doc_level(doc_id: str, new_level: int) -> Optional[store.Document]:

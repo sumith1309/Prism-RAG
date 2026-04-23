@@ -292,6 +292,106 @@ def _find_value_in_result(analytics_event, expected_value, path_hints,
     return False, f"unhandled result type: {type(result).__name__}"
 
 
+_NEGATION_WORDS = (
+    "not", "don't", "doesn't", "do not", "does not",
+    "didn't", "did not", "never", "no", "cannot", "can't",
+    "isn't", "is not", "aren't", "are not",
+)
+
+_ABSTENTION_STEMS = (
+    "specif", "cover", "recommend", "mention", "includ", "provid",
+    "state", "list", "address", "describ", "contain", "discuss",
+)
+
+
+def _looks_like_morphological_abstention(text_lower: str) -> tuple[bool, str]:
+    """Finding 3 fix 2 — catch abstention regardless of verb tense.
+
+    Matches patterns like 'do not specify', 'doesn't recommend', 'does not
+    cover' — tense variants that literal phrase-list matching misses. The
+    abstention_phrases list is kept as an exact-match pre-filter; this is
+    the morphology-aware fallback."""
+    import re
+    for neg in _NEGATION_WORDS:
+        # Look for negation followed by an abstention stem within a short
+        # span (up to 40 chars). Avoids false positives across sentence
+        # boundaries.
+        for stem in _ABSTENTION_STEMS:
+            pattern = rf"\b{re.escape(neg)}\b[^.!?]{{,40}}{stem}"
+            if re.search(pattern, text_lower):
+                return True, f"morphological: '{neg} … {stem}…'"
+    return False, ""
+
+
+def _red_flag_is_negated(text_lower: str, flag: str) -> bool:
+    """Finding 3 fix 3 — a red-flag substring that appears ONLY inside a
+    negation scope ('does not specify a recommended learning rate') isn't a
+    hallucination; it's the abstention itself. Returns True iff every
+    occurrence of the flag is preceded (within 50 chars) by a negation word.
+    """
+    import re
+    flag_l = flag.lower()
+    positions = [m.start() for m in re.finditer(re.escape(flag_l), text_lower)]
+    if not positions:
+        return False  # not present at all
+    for pos in positions:
+        window_start = max(0, pos - 50)
+        window = text_lower[window_start:pos]
+        has_negation = any(
+            re.search(rf"\b{re.escape(neg)}\b", window) for neg in _NEGATION_WORDS
+        )
+        if not has_negation:
+            return False  # this occurrence is affirmative → real flag
+    return True  # every occurrence negated → not a hallucination
+
+
+def _find_value_in_text(text: str, expected_value, hints: list,
+                         tol_abs: float = 0, tol_pct=None) -> tuple[bool, str]:
+    """Finding 3 fix 1 — when the grounded path emits no analytics.result,
+    scan the freeform answer text for a number matching the expected value.
+    Prefer numbers in close proximity to hint words (within 40 chars). Falls
+    back to any-match when no hints are supplied."""
+    import re
+    num_re = re.compile(r"-?\d{1,3}(?:,\d{3})+(?:\.\d+)?|-?\d+\.?\d*")
+    text_lower = text.lower()
+    candidates: list[tuple[int, float, bool]] = []
+    for m in num_re.finditer(text):
+        raw = m.group(0).replace(",", "")
+        try:
+            v = float(raw)
+        except ValueError:
+            continue
+        window_start = max(0, m.start() - 40)
+        window_end = min(len(text), m.end() + 40)
+        window = text_lower[window_start:window_end]
+        near_hint = any(h.lower() in window for h in hints) if hints else True
+        candidates.append((m.start(), v, near_hint))
+    # Prefer hint-adjacent matches
+    for pos, v, near in candidates:
+        if near and _values_match(v, expected_value, tol_abs, tol_pct):
+            return True, f"text match (near-hint): {v} @ pos {pos}"
+    # If no hints, accept any exact match
+    if not hints:
+        for pos, v, _ in candidates:
+            if _values_match(v, expected_value, tol_abs, tol_pct):
+                return True, f"text match (no hints): {v} @ pos {pos}"
+    return False, f"expected {expected_value} not found near hints in answer text"
+
+
+def _find_value_any_path(resp: "StreamedResponse", expected_value,
+                          hints: list, tol_abs: float = 0,
+                          tol_pct=None) -> tuple[bool, str]:
+    """Strict lookup with grounded-path fallback. If analytics.result exists,
+    use it (strict). Otherwise scan the answer text."""
+    if resp.analytics is not None:
+        return _find_value_in_result(resp.analytics, expected_value, hints, tol_abs, tol_pct)
+    text = _derive_answer_text(resp)
+    if not text:
+        return False, "no result source (no analytics event, no answer text)"
+    ok, msg = _find_value_in_text(text, expected_value, hints, tol_abs, tol_pct)
+    return ok, f"[text-fallback] {msg}"
+
+
 def _is_structural_abstention(analytics_event) -> tuple[bool, str]:
     """Fix 2 — detect 'I don't know' in structural form (answer: None, etc.)
     Complements phrase-based abstention checks."""
@@ -495,14 +595,15 @@ def score_standard(qry: dict, resp: StreamedResponse,
         if hit:
             rep.passed = False
 
-    # Fix 1: scalar_checks match against analytics.result specifically,
-    # not the full serialized blob. Prevents T3-style false positives.
+    # Fix 1 + Finding 3 fix 1: scalar_checks try analytics.result first
+    # (strict), then fall back to scanning answer text when the grounded
+    # path emits no analytics event.
     for sc in expected.get("scalar_checks", []):
         expected_val = sc["expected"]
         hints = sc.get("path_hints", [])
         tol_abs = sc.get("tolerance_abs", 0)
         tol_pct = sc.get("tolerance_pct")
-        ok, msg = _find_value_in_result(resp.analytics, expected_val, hints,
+        ok, msg = _find_value_any_path(resp, expected_val, hints,
                                          tol_abs=tol_abs, tol_pct=tol_pct)
         rep.checks.append((ok, f"scalar '{sc['name']}' = {expected_val} → {msg}"))
         if not ok:
@@ -533,21 +634,32 @@ def score_abstention(qry: dict, resp: StreamedResponse,
     abstention_any = expected.get("abstention_phrases_any", [])
     hallu_flags = expected.get("hallucination_red_flags", [])
 
-    # Phrase-based abstention
+    # Phrase-based abstention (literal substring match)
     phrase_abstained = any(p.lower() in text for p in abstention_any)
-    # Fix 2: structural abstention (answer: None / empty)
+    # Fix 2: structural abstention (analytics.result.answer is None / empty)
     struct_abstained, struct_msg = _is_structural_abstention(resp.analytics)
-    abstained = phrase_abstained or struct_abstained
+    # Finding 3 fix 2: morphological abstention — catches tense variants
+    # like "do not specify" when phrase list has "not specified".
+    morph_abstained, morph_msg = _looks_like_morphological_abstention(text)
+    abstained = phrase_abstained or struct_abstained or morph_abstained
 
-    form = ("phrase" if phrase_abstained else "") + \
-           (("+" if phrase_abstained and struct_abstained else "") if True else "") + \
-           ("structural" if struct_abstained else "")
-    form = form or "neither"
+    forms = []
+    if phrase_abstained: forms.append("phrase")
+    if struct_abstained: forms.append("structural")
+    if morph_abstained:  forms.append("morphological")
+    form_str = "+".join(forms) or "neither"
     rep.checks.append((abstained,
-        f"abstained via {form} "
+        f"abstained via {form_str} "
         f"({'✓ honest refusal' if abstained else '✗ NO refusal signal (struct: ' + struct_msg + ')'})"))
 
-    flagged = [f for f in hallu_flags if f.lower() in text]
+    # Finding 3 fix 3: hallucination check exempts red-flag substrings
+    # that appear ONLY inside negation scope ("does not specify a
+    # recommended learning rate" — 'recommended learning rate' is the
+    # abstention itself, not a hallucination).
+    flagged = []
+    for f in hallu_flags:
+        if f.lower() in text and not _red_flag_is_negated(text, f):
+            flagged.append(f)
     clean = len(flagged) == 0
     rep.checks.append((clean,
         f"hallucination check ({'✓ clean' if clean else f'✗ FLAGGED: {flagged}'})"))

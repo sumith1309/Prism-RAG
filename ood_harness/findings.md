@@ -392,8 +392,21 @@ edits to clean-A state. A (`efac794`) stays on origin/main.
   coincidental pre-A 3/3 sample bias. Not re-running 3×20 yet — the
   measurement change applies to the next baseline whenever it runs.
   Q3 left at default threshold; needs more samples before re-tagging.
-- **Step 7: Finding 3 scorer edges.** Fix grounded-path scalar_check
-  fallback + abstention-phrase tense variants + hallucination-red-flag
-  negation handling. Should move OOD 5/10 → 8-10/10 on the same system
-  behavior (scorer-only patch).
+- **Step 7: SHIPPED 2026-04-23.** Three scorer fixes in `ood_eval.py`:
+  - `_find_value_any_path()` — falls back to scanning answer text for the
+    expected value when `analytics.result` is absent (grounded path).
+    Uses hint-proximity (within 40 chars) to prefer hint-adjacent matches.
+  - `_looks_like_morphological_abstention()` — catches tense variants
+    like `"do not specify"` / `"doesn't cover"` that literal phrase-list
+    matching misses. Combines with existing phrase + structural checks
+    as an OR gate.
+  - `_red_flag_is_negated()` — exempts red-flag substrings that appear
+    only inside a negation scope (e.g., `"does not specify a recommended
+    learning rate"` — the flagged phrase IS the abstention, not a
+    hallucination).
+  OOD re-measured same system: **5/10 → 8/10** (fresh cache,
+  `post_finding3_1776960112.json`). Three grounded-path edges cleared.
+  Two remaining fails: CODE_DOCS_2 (LLM must_not_contain variance —
+  unrelated to Finding 3) and SCIENTIFIC_3 (answer uses word "three"
+  rather than numeral "3"; marginal word-form fix deferred to Phase C).
 

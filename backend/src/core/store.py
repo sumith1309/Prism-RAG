@@ -28,6 +28,32 @@ class Document(SQLModel, table=True):
     disabled_for_roles: str = ""
 
 
+class TableProfileRow(SQLModel, table=True):
+    """Schema profile of an uploaded tabular document.
+
+    Populated by `schema_profiler.profile_table()` at upload time (step 3
+    of U1a). The analytics agent rehydrates profiles at query time for
+    docs visible to the caller, computes FK candidates against live
+    DataFrames, and renders the result as a DYNAMIC CORPUS SCHEMA block
+    in place of the old hardcoded TECHNOVA_CORPUS_CONSTANTS + BUSINESS-
+    TERM GLOSSARY + TABLE SEMANTICS blocks (step 5).
+
+    RBAC: inherits the parent Document's doc_level at retrieval time,
+    same pattern as CorpusFact. A caller who can see the document can
+    see the profile derived from it.
+
+    One row per tabular document. doc_id is the primary key so re-
+    profiling (e.g. after an edited upload) is idempotent via merge().
+    """
+    doc_id: str = Field(primary_key=True)           # FK to document.doc_id
+    filename: str = ""
+    table_id: str = ""                               # normalized 'df_<slug>'
+    row_count: int = 0
+    column_count: int = 0
+    profile_json: str = ""                           # full TableProfile as JSON
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 class CorpusFact(SQLModel, table=True):
     """Policy/quantitative rule extracted from an uploaded document.
 
@@ -272,3 +298,70 @@ def delete_corpus_facts_for_doc(doc_id: str) -> int:
             session.delete(r)
         session.commit()
         return len(rows)
+
+
+# ── Table profiles (schema profiler output) ──────────────────────────────
+
+def save_table_profile(
+    doc_id: str,
+    filename: str,
+    table_id: str,
+    row_count: int,
+    column_count: int,
+    profile_json: str,
+) -> None:
+    """Upsert a table profile for a given doc. Idempotent — re-profiling
+    the same doc replaces the prior row via session.merge()."""
+    row = TableProfileRow(
+        doc_id=doc_id,
+        filename=filename,
+        table_id=table_id,
+        row_count=row_count,
+        column_count=column_count,
+        profile_json=profile_json,
+    )
+    with Session(_get_engine()) as session:
+        session.merge(row)
+        session.commit()
+
+
+def get_table_profile(doc_id: str) -> Optional[TableProfileRow]:
+    with Session(_get_engine()) as session:
+        return session.get(TableProfileRow, doc_id)
+
+
+def list_table_profiles(
+    doc_ids: Optional[list[str]] = None,
+    max_doc_level: Optional[int] = None,
+) -> list[TableProfileRow]:
+    """Return table profiles scoped to the caller's visible docs.
+
+    `doc_ids` — if provided, restrict to these documents only.
+    `max_doc_level` — RBAC ceiling; filter to parent docs at or below
+                      the caller's clearance level. Profiles inherit
+                      their Document's RBAC — no separate clearance.
+    """
+    with Session(_get_engine()) as session:
+        stmt = select(TableProfileRow)
+        if doc_ids:
+            stmt = stmt.where(TableProfileRow.doc_id.in_(doc_ids))
+        rows = list(session.exec(stmt))
+        if max_doc_level is None:
+            return rows
+        doc_rows = session.exec(
+            select(Document.doc_id, Document.doc_level)
+        ).all()
+        level_map = {d.doc_id: d.doc_level for d in doc_rows}
+        return [r for r in rows if level_map.get(r.doc_id, 1) <= max_doc_level]
+
+
+def delete_table_profile_for_doc(doc_id: str) -> int:
+    """Remove the table profile for a document. Called when the doc is
+    deleted or re-uploaded."""
+    with Session(_get_engine()) as session:
+        row = session.get(TableProfileRow, doc_id)
+        if row is None:
+            return 0
+        session.delete(row)
+        session.commit()
+        return 1

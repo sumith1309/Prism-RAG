@@ -203,6 +203,9 @@ async def delete_document(doc_id: str, _user: CurrentUser = Depends(require_leve
     # Also purge any extracted policy facts — orphaned facts would pollute
     # future analytics retrievals with rules from a deleted document.
     store.delete_corpus_facts_for_doc(doc_id)
+    # Same for U1a schema profiles — orphan profiles would render stale
+    # DYNAMIC CORPUS SCHEMA blocks citing a deleted doc.
+    store.delete_table_profile_for_doc(doc_id)
     # Tier 1.2 — bust any cached chat answers that cited this doc so the
     # deletion takes effect on subsequent identical queries.
     chat_cache.bust_for_doc(doc_id)

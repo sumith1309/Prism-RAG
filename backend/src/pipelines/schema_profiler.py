@@ -18,8 +18,9 @@ TechNova-ism audit.
 
 from __future__ import annotations
 
+import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -117,6 +118,24 @@ class TableProfile:
     row_count: int
     column_count: int
     columns: list[ColumnProfile] = field(default_factory=list)
+
+    def to_json(self) -> str:
+        return json.dumps(asdict(self), ensure_ascii=False)
+
+    @classmethod
+    def from_json(cls, raw: str) -> "TableProfile":
+        return cls.from_dict(json.loads(raw))
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "TableProfile":
+        cols = [ColumnProfile(**col) for col in d.get("columns", [])]
+        return cls(
+            table_id=d["table_id"],
+            filename=d["filename"],
+            row_count=int(d.get("row_count", 0)),
+            column_count=int(d.get("column_count", 0)),
+            columns=cols,
+        )
 
 
 @dataclass

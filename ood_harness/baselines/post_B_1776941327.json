@@ -1,0 +1,1492 @@
+{
+  "label": "post_B",
+  "wall_seconds": 65.3,
+  "passed": 4,
+  "total": 10,
+  "domains": [
+    {
+      "domain": "code_docs",
+      "doc_ids": [
+        "35ce94fec643",
+        "a9682e99e235"
+      ],
+      "passed": 2,
+      "total": 5,
+      "queries": [
+        {
+          "id": "CODE_DOCS_1",
+          "difficulty": 1,
+          "tier_name": "extraction",
+          "label": "Enum for predefined path param values",
+          "query": "What Python class does FastAPI recommend using for predefined path parameter values?",
+          "passed": true,
+          "checks": [
+            [
+              true,
+              "must_contain_any (1/1): ['Enum']"
+            ],
+            [
+              true,
+              "route assertion: route ok: answer_mode='grounded'"
+            ],
+            [
+              true,
+              "source assertion: source ok: 2/2 retrieved docs match uploaded"
+            ]
+          ],
+          "latency_s": 14.0,
+          "answer_preview": "FastAPI recommends using a standard Python `Enum` for predefined path parameter values.[Source 1]\n\n- It says that if you want valid path parameter values to be predefined, \u201cyou can use a standard Python `Enum`.\u201d[Source 1]\n- It also says to create an `Enum` class by importing `Enum` and creating a subclass that inherits from `str` and from `Enum`.[Source 1]",
+          "events_seen": [
+            "thread",
+            "sources",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "followups",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "grounded",
+            "thread_id": "c75601451bae",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 9829,
+              "rerank": 3931,
+              "generate": 2367,
+              "total": 13973
+            },
+            "tokens": {
+              "prompt": 1701,
+              "completion": 89
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0,
+            "confidence": 97,
+            "confidence_breakdown": {
+              "retrieval": 97,
+              "reasoning": null,
+              "overall": 97
+            },
+            "rbac_blocked": false,
+            "citation_check": {
+              "total": 1,
+              "valid": 1,
+              "fabricated": [],
+              "weak": [],
+              "score": 1.0
+            }
+          },
+          "analytics_event": null,
+          "answer_mode": "grounded",
+          "tables_joined_preview": [],
+          "route_ok": true,
+          "retrieved_doc_ids": [
+            "35ce94fec643",
+            "a9682e99e235"
+          ],
+          "retrieved_filenames_preview": [
+            "path-params.md",
+            "query-params.md"
+          ],
+          "source_ok": true,
+          "error": null
+        },
+        {
+          "id": "CODE_DOCS_2",
+          "difficulty": 2,
+          "tier_name": "comparison",
+          "label": "Which have defaults \u2014 path vs query parameters",
+          "query": "Which have default values \u2014 path parameters or query parameters?",
+          "passed": false,
+          "checks": [
+            [
+              true,
+              "must_contain_all: 'query parameters' \u2713"
+            ],
+            [
+              true,
+              "must_contain_all: 'default' \u2713"
+            ],
+            [
+              false,
+              "must_not_contain: 'path parameters have default' \u2717 PRESENT"
+            ],
+            [
+              true,
+              "must_not_contain: 'path parameters can have defaults' \u2713 absent"
+            ],
+            [
+              true,
+              "route assertion: route ok: answer_mode='grounded'"
+            ],
+            [
+              true,
+              "source assertion: source ok: 2/2 retrieved docs match uploaded"
+            ]
+          ],
+          "latency_s": 5.8,
+          "answer_preview": "Query parameters can have default values because they are not a fixed part of a path. The documents give examples with `skip=0` and `limit=10` as default values for query parameters. [Source 1]\n\nPath parameters are part of the path itself, and the provided documents do not state that path parameters have default values. [Source 4][Source 8]",
+          "events_seen": [
+            "thread",
+            "topk_expanded",
+            "intent",
+            "sources",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "citation_check",
+            "followups",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "grounded",
+            "thread_id": "4e41ca50adce",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 1043,
+              "rerank": 417,
+              "generate": 2044,
+              "total": 5788
+            },
+            "tokens": {
+              "prompt": 2123,
+              "completion": 85
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0,
+            "confidence": 89,
+            "confidence_breakdown": {
+              "retrieval": 89,
+              "reasoning": null,
+              "overall": 89
+            },
+            "rbac_blocked": false,
+            "citation_check": {
+              "total": 3,
+              "valid": 1,
+              "fabricated": [],
+              "weak": [
+                4,
+                8
+              ],
+              "score": 0.333
+            }
+          },
+          "analytics_event": null,
+          "answer_mode": "grounded",
+          "tables_joined_preview": [],
+          "route_ok": true,
+          "retrieved_doc_ids": [
+            "a9682e99e235",
+            "35ce94fec643"
+          ],
+          "retrieved_filenames_preview": [
+            "query-params.md",
+            "path-params.md"
+          ],
+          "source_ok": true,
+          "error": null
+        },
+        {
+          "id": "CODE_DOCS_3",
+          "difficulty": 3,
+          "tier_name": "aggregation",
+          "label": "Count of benefits in Path Params Recap",
+          "query": "In the Recap section of the Path Parameters tutorial, how many benefits of using Python type declarations are listed?",
+          "passed": false,
+          "checks": [
+            [
+              true,
+              "must_contain_any (1/1): ['4']"
+            ],
+            [
+              false,
+              "scalar 'benefit_count' = 4 \u2192 no analytics event"
+            ],
+            [
+              true,
+              "route assertion: route ok: answer_mode='grounded'"
+            ],
+            [
+              true,
+              "source assertion: source ok: 2/2 retrieved docs match uploaded"
+            ]
+          ],
+          "latency_s": 5.1,
+          "answer_preview": "The Recap section lists **4 benefits** of using Python type declarations: editor support, data parsing, data validation, and API annotation and automatic documentation.[Source 3][Source 5]",
+          "events_seen": [
+            "thread",
+            "intent",
+            "sources",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "followups",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "grounded",
+            "thread_id": "3747481048fa",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 1069,
+              "rerank": 427,
+              "generate": 1223,
+              "total": 5050
+            },
+            "tokens": {
+              "prompt": 2924,
+              "completion": 47
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0,
+            "confidence": 41,
+            "confidence_breakdown": {
+              "retrieval": 41,
+              "reasoning": null,
+              "overall": 41
+            },
+            "rbac_blocked": false,
+            "citation_check": {
+              "total": 2,
+              "valid": 2,
+              "fabricated": [],
+              "weak": [],
+              "score": 1.0
+            }
+          },
+          "analytics_event": null,
+          "answer_mode": "grounded",
+          "tables_joined_preview": [],
+          "route_ok": true,
+          "retrieved_doc_ids": [
+            "35ce94fec643",
+            "a9682e99e235"
+          ],
+          "retrieved_filenames_preview": [
+            "path-params.md",
+            "query-params.md"
+          ],
+          "source_ok": true,
+          "error": null
+        },
+        {
+          "id": "CODE_DOCS_4",
+          "difficulty": 4,
+          "tier_name": "multi_step",
+          "label": "path convertor behavior + URL resolution",
+          "query": "I define a path `/files/{file_path:path}`. What does the `:path` convertor do, and what would `file_path` be if I hit the URL `/files/home/user/data.txt`?",
+          "passed": true,
+          "checks": [
+            [
+              true,
+              "must_contain_all: 'home/user/data.txt' \u2713"
+            ],
+            [
+              true,
+              "must_contain_any (3/3): ['match any', 'Starlette', 'path']"
+            ],
+            [
+              true,
+              "route assertion: route ok: answer_mode='grounded'"
+            ],
+            [
+              true,
+              "source assertion: source ok: 2/2 retrieved docs match uploaded"
+            ]
+          ],
+          "latency_s": 9.1,
+          "answer_preview": "- The `:path` convertor tells FastAPI/Starlette that the path parameter should match any *path*, not just a single path segment. In `/files/{file_path:path}`, the parameter name is `file_path`, and `:path` declares that it can contain a path inside it. [Source 1]\n- With a route like `/files/{file_path}`, if you need `file_path` itself to contain a path such as `home/johndoe/myfile.txt`, the URL wo",
+          "events_seen": [
+            "thread",
+            "decomposed",
+            "topk_expanded",
+            "intent",
+            "sources",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "citation_check",
+            "followups",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "grounded",
+            "thread_id": "e78cf5ccd700",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 2351,
+              "rerank": 940,
+              "generate": 3283,
+              "total": 9056
+            },
+            "tokens": {
+              "prompt": 1693,
+              "completion": 144
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0,
+            "confidence": 95,
+            "confidence_breakdown": {
+              "retrieval": 95,
+              "reasoning": null,
+              "overall": 95
+            },
+            "rbac_blocked": false,
+            "citation_check": {
+              "total": 4,
+              "valid": 2,
+              "fabricated": [],
+              "weak": [
+                1,
+                2
+              ],
+              "score": 0.5
+            }
+          },
+          "analytics_event": null,
+          "answer_mode": "grounded",
+          "tables_joined_preview": [],
+          "route_ok": true,
+          "retrieved_doc_ids": [
+            "35ce94fec643",
+            "a9682e99e235"
+          ],
+          "retrieved_filenames_preview": [
+            "path-params.md",
+            "query-params.md"
+          ],
+          "source_ok": true,
+          "error": null
+        },
+        {
+          "id": "CODE_DOCS_5",
+          "difficulty": 5,
+          "tier_name": "abstention",
+          "label": "FastAPI 2.0 release date (NOT in docs)",
+          "query": "What is the release date for FastAPI version 2.0?",
+          "passed": false,
+          "checks": [
+            [
+              false,
+              "abstained via neither (\u2717 NO refusal signal (struct: no analytics))"
+            ],
+            [
+              true,
+              "hallucination check (\u2713 clean)"
+            ],
+            [
+              true,
+              "route assertion: route ok: answer_mode='grounded'"
+            ],
+            [
+              true,
+              "source assertion: source ok: 1/1 retrieved docs match uploaded"
+            ]
+          ],
+          "latency_s": 4.5,
+          "answer_preview": "The provided documents do not specify the release date for FastAPI version 2.0.",
+          "events_seen": [
+            "thread",
+            "intent",
+            "sources",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "followups",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "grounded",
+            "thread_id": "d2e7803e16c4",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 1009,
+              "rerank": 403,
+              "generate": 836,
+              "total": 4515
+            },
+            "tokens": {
+              "prompt": 1735,
+              "completion": 19
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0,
+            "confidence": 5,
+            "confidence_breakdown": {
+              "retrieval": 5,
+              "reasoning": null,
+              "overall": 5
+            },
+            "rbac_blocked": false,
+            "citation_check": {
+              "total": 0,
+              "valid": 0,
+              "fabricated": [],
+              "weak": [],
+              "score": 0.0
+            }
+          },
+          "analytics_event": null,
+          "answer_mode": "grounded",
+          "tables_joined_preview": [],
+          "route_ok": true,
+          "retrieved_doc_ids": [
+            "35ce94fec643"
+          ],
+          "retrieved_filenames_preview": [
+            "path-params.md"
+          ],
+          "source_ok": true,
+          "error": null
+        }
+      ]
+    },
+    {
+      "domain": "scientific",
+      "doc_ids": [
+        "08fa72ee0ea4"
+      ],
+      "passed": 2,
+      "total": 5,
+      "queries": [
+        {
+          "id": "SCIENTIFIC_1",
+          "difficulty": 1,
+          "tier_name": "extraction",
+          "label": "LLaMA-2-70B parameter count",
+          "query": "How many billion parameters does the LLaMA-2-70B model have?",
+          "passed": true,
+          "checks": [
+            [
+              true,
+              "must_contain_any (1/1): ['70']"
+            ],
+            [
+              true,
+              "route assertion: route ok: answer_mode='grounded'"
+            ],
+            [
+              true,
+              "source assertion: source ok: 1/1 retrieved docs match uploaded"
+            ]
+          ],
+          "latency_s": 5.0,
+          "answer_preview": "The LLaMA-2-70B model has 70 billion parameters.[Source 1]",
+          "events_seen": [
+            "thread",
+            "intent",
+            "sources",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "followups",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "grounded",
+            "thread_id": "8265e8921273",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 1080,
+              "rerank": 432,
+              "generate": 875,
+              "total": 4969
+            },
+            "tokens": {
+              "prompt": 3196,
+              "completion": 14
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0,
+            "confidence": 99,
+            "confidence_breakdown": {
+              "retrieval": 99,
+              "reasoning": null,
+              "overall": 99
+            },
+            "rbac_blocked": false,
+            "citation_check": {
+              "total": 1,
+              "valid": 1,
+              "fabricated": [],
+              "weak": [],
+              "score": 1.0
+            }
+          },
+          "analytics_event": null,
+          "answer_mode": "grounded",
+          "tables_joined_preview": [],
+          "route_ok": true,
+          "retrieved_doc_ids": [
+            "08fa72ee0ea4"
+          ],
+          "retrieved_filenames_preview": [
+            "efficient_inference_survey.pdf"
+          ],
+          "source_ok": true,
+          "error": null
+        },
+        {
+          "id": "SCIENTIFIC_2",
+          "difficulty": 2,
+          "tier_name": "comparison",
+          "label": "A100 vs 3090Ti GPU count for LLaMA-2-70B",
+          "query": "Which requires fewer GPUs to deploy LLaMA-2-70B in FP16 \u2014 RTX 3090Ti (24 GB VRAM each) or NVIDIA A100 (80 GB VRAM each)?",
+          "passed": true,
+          "checks": [
+            [
+              true,
+              "must_contain_all: 'A100' \u2713"
+            ],
+            [
+              true,
+              "must_contain_any (2/2): ['2', 'fewer']"
+            ],
+            [
+              true,
+              "must_not_contain: '3090Ti requires fewer' \u2713 absent"
+            ],
+            [
+              true,
+              "must_not_contain: '3090Ti needs fewer' \u2713 absent"
+            ],
+            [
+              true,
+              "route assertion: route ok: answer_mode='grounded'"
+            ],
+            [
+              true,
+              "source assertion: source ok: 1/1 retrieved docs match uploaded"
+            ]
+          ],
+          "latency_s": 6.4,
+          "answer_preview": "NVIDIA A100 requires fewer GPUs for deploying LLaMA-2-70B in FP16. The context states that storing LLaMA-2-70B weights in FP16 needs 140 GB of VRAM, which requires at least **6 RTX 3090Ti GPUs** with **24 GB VRAM each**, or **2 NVIDIA A100 GPUs** with **80 GB VRAM each** for inference [Source 1][Source 3].",
+          "events_seen": [
+            "thread",
+            "topk_expanded",
+            "intent",
+            "sources",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "followups",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "grounded",
+            "thread_id": "f19dcd8a2cb5",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 1182,
+              "rerank": 472,
+              "generate": 2079,
+              "total": 6334
+            },
+            "tokens": {
+              "prompt": 2210,
+              "completion": 76
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0,
+            "confidence": 100,
+            "confidence_breakdown": {
+              "retrieval": 100,
+              "reasoning": null,
+              "overall": 100
+            },
+            "rbac_blocked": false,
+            "citation_check": {
+              "total": 2,
+              "valid": 2,
+              "fabricated": [],
+              "weak": [],
+              "score": 1.0
+            }
+          },
+          "analytics_event": null,
+          "answer_mode": "grounded",
+          "tables_joined_preview": [],
+          "route_ok": true,
+          "retrieved_doc_ids": [
+            "08fa72ee0ea4"
+          ],
+          "retrieved_filenames_preview": [
+            "efficient_inference_survey.pdf"
+          ],
+          "source_ok": true,
+          "error": null
+        },
+        {
+          "id": "SCIENTIFIC_3",
+          "difficulty": 3,
+          "tier_name": "aggregation",
+          "label": "Count of top-level optimization categories",
+          "query": "According to the taxonomy in this survey, how many top-level optimization categories (levels) are presented for efficient LLM inference?",
+          "passed": false,
+          "checks": [
+            [
+              true,
+              "must_contain_any (2/2): ['3', 'three']"
+            ],
+            [
+              false,
+              "scalar 'category_count' = 3 \u2192 no analytics event"
+            ],
+            [
+              true,
+              "route assertion: route ok: answer_mode='grounded'"
+            ],
+            [
+              true,
+              "source assertion: source ok: 1/1 retrieved docs match uploaded"
+            ]
+          ],
+          "latency_s": 4.7,
+          "answer_preview": "The survey presents **three** top-level optimization categories for efficient LLM inference: **data-level optimization, model-level optimization, and system-level optimization**. [Source 1] [Source 3] [Source 14]",
+          "events_seen": [
+            "thread",
+            "intent",
+            "sources",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "citation_check",
+            "followups",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "grounded",
+            "thread_id": "d97c2be5a84d",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 954,
+              "rerank": 381,
+              "generate": 1313,
+              "total": 4696
+            },
+            "tokens": {
+              "prompt": 3093,
+              "completion": 53
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0,
+            "confidence": 95,
+            "confidence_breakdown": {
+              "retrieval": 95,
+              "reasoning": null,
+              "overall": 95
+            },
+            "rbac_blocked": false,
+            "citation_check": {
+              "total": 3,
+              "valid": 0,
+              "fabricated": [],
+              "weak": [
+                1,
+                3,
+                14
+              ],
+              "score": 0.0
+            }
+          },
+          "analytics_event": null,
+          "answer_mode": "grounded",
+          "tables_joined_preview": [],
+          "route_ok": true,
+          "retrieved_doc_ids": [
+            "08fa72ee0ea4"
+          ],
+          "retrieved_filenames_preview": [
+            "efficient_inference_survey.pdf"
+          ],
+          "source_ok": true,
+          "error": null
+        },
+        {
+          "id": "SCIENTIFIC_4",
+          "difficulty": 4,
+          "tier_name": "multi_step",
+          "label": "VRAM math: 140 GB LLaMA-2-70B / 80 GB A100",
+          "query": "LLaMA-2-70B model weights in FP16 format require 140 GB of VRAM. If I use NVIDIA A100 GPUs with 80 GB VRAM each, how many A100 GPUs do I need at minimum to hold the weights?",
+          "passed": false,
+          "checks": [
+            [
+              true,
+              "must_contain_any (1/1): ['2']"
+            ],
+            [
+              false,
+              "scalar 'min_a100_count' = 2 \u2192 no analytics event"
+            ],
+            [
+              true,
+              "route assertion: route ok: answer_mode='grounded'"
+            ],
+            [
+              true,
+              "source assertion: source ok: 1/1 retrieved docs match uploaded"
+            ]
+          ],
+          "latency_s": 6.1,
+          "answer_preview": "You need **at least 2 NVIDIA A100 GPUs**. [Source 3]\n\n- The context states that **LLaMA-2-70B** in **FP16** requires **140 GB of VRAM**. [Source 1]\n- It also states this requires **\u201c2 NVIDIA A100 GPUs (each with 80 GB VRAM) for inference.\u201d** [Source 3]",
+          "events_seen": [
+            "thread",
+            "topk_expanded",
+            "intent",
+            "sources",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "followups",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "grounded",
+            "thread_id": "a5dd502293e4",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 1217,
+              "rerank": 486,
+              "generate": 2018,
+              "total": 6130
+            },
+            "tokens": {
+              "prompt": 2569,
+              "completion": 63
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0,
+            "confidence": 100,
+            "confidence_breakdown": {
+              "retrieval": 100,
+              "reasoning": null,
+              "overall": 100
+            },
+            "rbac_blocked": false,
+            "citation_check": {
+              "total": 3,
+              "valid": 3,
+              "fabricated": [],
+              "weak": [],
+              "score": 1.0
+            }
+          },
+          "analytics_event": null,
+          "answer_mode": "grounded",
+          "tables_joined_preview": [],
+          "route_ok": true,
+          "retrieved_doc_ids": [
+            "08fa72ee0ea4"
+          ],
+          "retrieved_filenames_preview": [
+            "efficient_inference_survey.pdf"
+          ],
+          "source_ok": true,
+          "error": null
+        },
+        {
+          "id": "SCIENTIFIC_5",
+          "difficulty": 5,
+          "tier_name": "abstention",
+          "label": "Learning rate recommendation (NOT in survey)",
+          "query": "What learning rate does this paper recommend for fine-tuning the inference optimization methods?",
+          "passed": false,
+          "checks": [
+            [
+              false,
+              "abstained via neither (\u2717 NO refusal signal (struct: no analytics))"
+            ],
+            [
+              true,
+              "hallucination check (\u2713 clean)"
+            ],
+            [
+              true,
+              "route assertion: route ok: answer_mode='grounded'"
+            ],
+            [
+              true,
+              "source assertion: source ok: 1/1 retrieved docs match uploaded"
+            ]
+          ],
+          "latency_s": 4.6,
+          "answer_preview": "The provided documents do not specify the learning rate recommended for fine-tuning the inference optimization methods.",
+          "events_seen": [
+            "thread",
+            "intent",
+            "sources",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "followups",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "grounded",
+            "thread_id": "1fa703d3bb81",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 1155,
+              "rerank": 462,
+              "generate": 844,
+              "total": 4607
+            },
+            "tokens": {
+              "prompt": 1911,
+              "completion": 29
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0,
+            "confidence": 5,
+            "confidence_breakdown": {
+              "retrieval": 5,
+              "reasoning": null,
+              "overall": 5
+            },
+            "rbac_blocked": false,
+            "citation_check": {
+              "total": 0,
+              "valid": 0,
+              "fabricated": [],
+              "weak": [],
+              "score": 0.0
+            }
+          },
+          "analytics_event": null,
+          "answer_mode": "grounded",
+          "tables_joined_preview": [],
+          "route_ok": true,
+          "retrieved_doc_ids": [
+            "08fa72ee0ea4"
+          ],
+          "retrieved_filenames_preview": [
+            "efficient_inference_survey.pdf"
+          ],
+          "source_ok": true,
+          "error": null
+        }
+      ]
+    }
+  ]
+}

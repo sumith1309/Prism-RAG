@@ -1,0 +1,787 @@
+{
+  "label": "sanity_check",
+  "wall_seconds": 38.3,
+  "passed": 3,
+  "total": 5,
+  "domains": [
+    {
+      "domain": "code_docs",
+      "doc_ids": [
+        "35ce94fec643",
+        "a9682e99e235"
+      ],
+      "passed": 3,
+      "total": 5,
+      "queries": [
+        {
+          "id": "CODE_DOCS_1",
+          "difficulty": 1,
+          "tier_name": "extraction",
+          "label": "Enum for predefined path param values",
+          "query": "What Python class does FastAPI recommend using for predefined path parameter values?",
+          "passed": true,
+          "checks": [
+            [
+              true,
+              "must_contain_any (1/1): ['Enum']"
+            ],
+            [
+              true,
+              "route assertion: route ok: answer_mode='grounded'"
+            ],
+            [
+              true,
+              "source assertion: source ok: 2/2 retrieved docs match uploaded"
+            ]
+          ],
+          "latency_s": 14.1,
+          "answer_preview": "FastAPI recommends using a standard Python `Enum` for predefined path parameter values. It says to import `Enum` and create a subclass that inherits from `str` and from `Enum`. [Source 1]",
+          "events_seen": [
+            "thread",
+            "sources",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "citation_check",
+            "followups",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "grounded",
+            "thread_id": "15701f115d7d",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 10257,
+              "rerank": 4102,
+              "generate": 2306,
+              "total": 14118
+            },
+            "tokens": {
+              "prompt": 1701,
+              "completion": 46
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0,
+            "confidence": 97,
+            "confidence_breakdown": {
+              "retrieval": 97,
+              "reasoning": null,
+              "overall": 97
+            },
+            "rbac_blocked": false,
+            "citation_check": {
+              "total": 1,
+              "valid": 0,
+              "fabricated": [],
+              "weak": [
+                1
+              ],
+              "score": 0.0
+            }
+          },
+          "analytics_event": null,
+          "answer_mode": "grounded",
+          "tables_joined_preview": [],
+          "route_ok": true,
+          "retrieved_doc_ids": [
+            "35ce94fec643",
+            "a9682e99e235"
+          ],
+          "retrieved_filenames_preview": [
+            "path-params.md",
+            "query-params.md"
+          ],
+          "source_ok": true,
+          "error": null
+        },
+        {
+          "id": "CODE_DOCS_2",
+          "difficulty": 2,
+          "tier_name": "comparison",
+          "label": "Which have defaults \u2014 path vs query parameters",
+          "query": "Which have default values \u2014 path parameters or query parameters?",
+          "passed": true,
+          "checks": [
+            [
+              true,
+              "must_contain_all: 'query parameters' \u2713"
+            ],
+            [
+              true,
+              "must_contain_all: 'default' \u2713"
+            ],
+            [
+              true,
+              "must_not_contain: 'path parameters have default' \u2713 absent"
+            ],
+            [
+              true,
+              "must_not_contain: 'path parameters can have defaults' \u2713 absent"
+            ],
+            [
+              true,
+              "route assertion: route ok: answer_mode='grounded'"
+            ],
+            [
+              true,
+              "source assertion: source ok: 2/2 retrieved docs match uploaded"
+            ]
+          ],
+          "latency_s": 6.6,
+          "answer_preview": "Query parameters can have default values because they are not a fixed part of a path. The documents give examples with query parameters `skip=0` and `limit=10` as defaults. [Source 1]\n\nPath parameters are part of the path, and the provided documents do not state that they have default values. They describe path parameters as values declared in the path and passed to the function. [Source 8]",
+          "events_seen": [
+            "thread",
+            "topk_expanded",
+            "intent",
+            "sources",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "citation_check",
+            "followups",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "grounded",
+            "thread_id": "6dd54559e8a4",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 1045,
+              "rerank": 418,
+              "generate": 3060,
+              "total": 6541
+            },
+            "tokens": {
+              "prompt": 2123,
+              "completion": 98
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0,
+            "confidence": 89,
+            "confidence_breakdown": {
+              "retrieval": 89,
+              "reasoning": null,
+              "overall": 89
+            },
+            "rbac_blocked": false,
+            "citation_check": {
+              "total": 2,
+              "valid": 1,
+              "fabricated": [],
+              "weak": [
+                8
+              ],
+              "score": 0.5
+            }
+          },
+          "analytics_event": null,
+          "answer_mode": "grounded",
+          "tables_joined_preview": [],
+          "route_ok": true,
+          "retrieved_doc_ids": [
+            "a9682e99e235",
+            "35ce94fec643"
+          ],
+          "retrieved_filenames_preview": [
+            "query-params.md",
+            "path-params.md"
+          ],
+          "source_ok": true,
+          "error": null
+        },
+        {
+          "id": "CODE_DOCS_3",
+          "difficulty": 3,
+          "tier_name": "aggregation",
+          "label": "Count of benefits in Path Params Recap",
+          "query": "In the Recap section of the Path Parameters tutorial, how many benefits of using Python type declarations are listed?",
+          "passed": false,
+          "checks": [
+            [
+              true,
+              "must_contain_any (1/1): ['4']"
+            ],
+            [
+              false,
+              "scalar 'benefit_count' = 4 \u2192 no analytics event"
+            ],
+            [
+              true,
+              "route assertion: route ok: answer_mode='grounded'"
+            ],
+            [
+              true,
+              "source assertion: source ok: 2/2 retrieved docs match uploaded"
+            ]
+          ],
+          "latency_s": 4.7,
+          "answer_preview": "In the **Recap** section of the Path Parameters tutorial, **4 benefits** are listed for using short, intuitive, and standard Python type declarations: editor support, data parsing, data validation, and API annotation and automatic documentation.[Source 3][Source 5]",
+          "events_seen": [
+            "thread",
+            "intent",
+            "sources",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "followups",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "grounded",
+            "thread_id": "23714f63fb4a",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 1072,
+              "rerank": 428,
+              "generate": 1361,
+              "total": 4724
+            },
+            "tokens": {
+              "prompt": 2924,
+              "completion": 66
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0,
+            "confidence": 41,
+            "confidence_breakdown": {
+              "retrieval": 41,
+              "reasoning": null,
+              "overall": 41
+            },
+            "rbac_blocked": false,
+            "citation_check": {
+              "total": 2,
+              "valid": 2,
+              "fabricated": [],
+              "weak": [],
+              "score": 1.0
+            }
+          },
+          "analytics_event": null,
+          "answer_mode": "grounded",
+          "tables_joined_preview": [],
+          "route_ok": true,
+          "retrieved_doc_ids": [
+            "35ce94fec643",
+            "a9682e99e235"
+          ],
+          "retrieved_filenames_preview": [
+            "path-params.md",
+            "query-params.md"
+          ],
+          "source_ok": true,
+          "error": null
+        },
+        {
+          "id": "CODE_DOCS_4",
+          "difficulty": 4,
+          "tier_name": "multi_step",
+          "label": "path convertor behavior + URL resolution",
+          "query": "I define a path `/files/{file_path:path}`. What does the `:path` convertor do, and what would `file_path` be if I hit the URL `/files/home/user/data.txt`?",
+          "passed": true,
+          "checks": [
+            [
+              true,
+              "must_contain_all: 'home/user/data.txt' \u2713"
+            ],
+            [
+              true,
+              "must_contain_any (3/3): ['match any', 'Starlette', 'path']"
+            ],
+            [
+              true,
+              "route assertion: route ok: answer_mode='grounded'"
+            ],
+            [
+              true,
+              "source assertion: source ok: 2/2 retrieved docs match uploaded"
+            ]
+          ],
+          "latency_s": 8.4,
+          "answer_preview": "- The `:path` convertor tells FastAPI/Starlette that the path parameter should match any *path*, not just a single path segment. In `/files/{file_path:path}`, the parameter name is `file_path`, and `:path` makes it capture a full path value. [Source 1]\n- If you hit `/files/home/user/data.txt`, then `file_path` would be `home/user/data.txt`. The documents give this same pattern with `/files/{file_p",
+          "events_seen": [
+            "thread",
+            "decomposed",
+            "topk_expanded",
+            "sources",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "citation_check",
+            "followups",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "grounded",
+            "thread_id": "5e812dc09624",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 2568,
+              "rerank": 1027,
+              "generate": 2516,
+              "total": 8402
+            },
+            "tokens": {
+              "prompt": 1678,
+              "completion": 140
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0,
+            "confidence": 96,
+            "confidence_breakdown": {
+              "retrieval": 96,
+              "reasoning": null,
+              "overall": 96
+            },
+            "rbac_blocked": false,
+            "citation_check": {
+              "total": 3,
+              "valid": 1,
+              "fabricated": [],
+              "weak": [
+                1,
+                2
+              ],
+              "score": 0.333
+            }
+          },
+          "analytics_event": null,
+          "answer_mode": "grounded",
+          "tables_joined_preview": [],
+          "route_ok": true,
+          "retrieved_doc_ids": [
+            "35ce94fec643",
+            "a9682e99e235"
+          ],
+          "retrieved_filenames_preview": [
+            "path-params.md",
+            "query-params.md"
+          ],
+          "source_ok": true,
+          "error": null
+        },
+        {
+          "id": "CODE_DOCS_5",
+          "difficulty": 5,
+          "tier_name": "abstention",
+          "label": "FastAPI 2.0 release date (NOT in docs)",
+          "query": "What is the release date for FastAPI version 2.0?",
+          "passed": false,
+          "checks": [
+            [
+              false,
+              "abstained via neither (\u2717 NO refusal signal (struct: no analytics))"
+            ],
+            [
+              true,
+              "hallucination check (\u2713 clean)"
+            ],
+            [
+              true,
+              "route assertion: route ok: answer_mode='grounded'"
+            ],
+            [
+              true,
+              "source assertion: source ok: 1/1 retrieved docs match uploaded"
+            ]
+          ],
+          "latency_s": 4.4,
+          "answer_preview": "The provided documents do not specify the release date for FastAPI version 2.0.",
+          "events_seen": [
+            "thread",
+            "intent",
+            "sources",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "followups",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "grounded",
+            "thread_id": "26328af20700",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 1030,
+              "rerank": 412,
+              "generate": 959,
+              "total": 4424
+            },
+            "tokens": {
+              "prompt": 1735,
+              "completion": 19
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0,
+            "confidence": 5,
+            "confidence_breakdown": {
+              "retrieval": 5,
+              "reasoning": null,
+              "overall": 5
+            },
+            "rbac_blocked": false,
+            "citation_check": {
+              "total": 0,
+              "valid": 0,
+              "fabricated": [],
+              "weak": [],
+              "score": 0.0
+            }
+          },
+          "analytics_event": null,
+          "answer_mode": "grounded",
+          "tables_joined_preview": [],
+          "route_ok": true,
+          "retrieved_doc_ids": [
+            "35ce94fec643"
+          ],
+          "retrieved_filenames_preview": [
+            "path-params.md"
+          ],
+          "source_ok": true,
+          "error": null
+        }
+      ]
+    }
+  ]
+}

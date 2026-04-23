@@ -1,0 +1,673 @@
+{
+  "label": "post_B_scientific_fresh",
+  "wall_seconds": 25.8,
+  "passed": 2,
+  "total": 5,
+  "domains": [
+    {
+      "domain": "scientific",
+      "doc_ids": [
+        "08fa72ee0ea4"
+      ],
+      "passed": 2,
+      "total": 5,
+      "queries": [
+        {
+          "id": "SCIENTIFIC_1",
+          "difficulty": 1,
+          "tier_name": "extraction",
+          "label": "LLaMA-2-70B parameter count",
+          "query": "How many billion parameters does the LLaMA-2-70B model have?",
+          "passed": true,
+          "checks": [
+            [
+              true,
+              "must_contain_any (1/1): ['70']"
+            ],
+            [
+              true,
+              "route assertion: route ok: answer_mode='grounded'"
+            ],
+            [
+              true,
+              "source assertion: source ok: 1/1 retrieved docs match uploaded"
+            ]
+          ],
+          "latency_s": 5.0,
+          "answer_preview": "The LLaMA-2-70B model has 70 billion parameters. [Source 1]",
+          "events_seen": [
+            "thread",
+            "intent",
+            "sources",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "citation_check",
+            "followups",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "grounded",
+            "thread_id": "2eb10b3144bf",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 1072,
+              "rerank": 428,
+              "generate": 834,
+              "total": 4996
+            },
+            "tokens": {
+              "prompt": 3196,
+              "completion": 14
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0,
+            "confidence": 99,
+            "confidence_breakdown": {
+              "retrieval": 99,
+              "reasoning": null,
+              "overall": 99
+            },
+            "rbac_blocked": false,
+            "citation_check": {
+              "total": 1,
+              "valid": 0,
+              "fabricated": [],
+              "weak": [
+                1
+              ],
+              "score": 0.0
+            }
+          },
+          "analytics_event": null,
+          "answer_mode": "grounded",
+          "tables_joined_preview": [],
+          "route_ok": true,
+          "retrieved_doc_ids": [
+            "08fa72ee0ea4"
+          ],
+          "retrieved_filenames_preview": [
+            "efficient_inference_survey.pdf"
+          ],
+          "source_ok": true,
+          "error": null
+        },
+        {
+          "id": "SCIENTIFIC_2",
+          "difficulty": 2,
+          "tier_name": "comparison",
+          "label": "A100 vs 3090Ti GPU count for LLaMA-2-70B",
+          "query": "Which requires fewer GPUs to deploy LLaMA-2-70B in FP16 \u2014 RTX 3090Ti (24 GB VRAM each) or NVIDIA A100 (80 GB VRAM each)?",
+          "passed": true,
+          "checks": [
+            [
+              true,
+              "must_contain_all: 'A100' \u2713"
+            ],
+            [
+              true,
+              "must_contain_any (2/2): ['2', 'fewer']"
+            ],
+            [
+              true,
+              "must_not_contain: '3090Ti requires fewer' \u2713 absent"
+            ],
+            [
+              true,
+              "must_not_contain: '3090Ti needs fewer' \u2713 absent"
+            ],
+            [
+              true,
+              "route assertion: route ok: answer_mode='grounded'"
+            ],
+            [
+              true,
+              "source assertion: source ok: 1/1 retrieved docs match uploaded"
+            ]
+          ],
+          "latency_s": 5.4,
+          "answer_preview": "NVIDIA A100 requires fewer GPUs. Deploying LLaMA-2-70B in FP16 needs **at least 6 RTX 3090Ti GPUs** with **24 GB VRAM each**, or **2 NVIDIA A100 GPUs** with **80 GB VRAM each** for inference [Source 1] [Source 3].",
+          "events_seen": [
+            "thread",
+            "topk_expanded",
+            "intent",
+            "sources",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "followups",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "grounded",
+            "thread_id": "1e5070e9dd37",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 1166,
+              "rerank": 466,
+              "generate": 1554,
+              "total": 5372
+            },
+            "tokens": {
+              "prompt": 2210,
+              "completion": 53
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0,
+            "confidence": 100,
+            "confidence_breakdown": {
+              "retrieval": 100,
+              "reasoning": null,
+              "overall": 100
+            },
+            "rbac_blocked": false,
+            "citation_check": {
+              "total": 2,
+              "valid": 2,
+              "fabricated": [],
+              "weak": [],
+              "score": 1.0
+            }
+          },
+          "analytics_event": null,
+          "answer_mode": "grounded",
+          "tables_joined_preview": [],
+          "route_ok": true,
+          "retrieved_doc_ids": [
+            "08fa72ee0ea4"
+          ],
+          "retrieved_filenames_preview": [
+            "efficient_inference_survey.pdf"
+          ],
+          "source_ok": true,
+          "error": null
+        },
+        {
+          "id": "SCIENTIFIC_3",
+          "difficulty": 3,
+          "tier_name": "aggregation",
+          "label": "Count of top-level optimization categories",
+          "query": "According to the taxonomy in this survey, how many top-level optimization categories (levels) are presented for efficient LLM inference?",
+          "passed": false,
+          "checks": [
+            [
+              true,
+              "must_contain_any (2/2): ['3', 'three']"
+            ],
+            [
+              false,
+              "scalar 'category_count' = 3 \u2192 no analytics event"
+            ],
+            [
+              true,
+              "route assertion: route ok: answer_mode='grounded'"
+            ],
+            [
+              true,
+              "source assertion: source ok: 1/1 retrieved docs match uploaded"
+            ]
+          ],
+          "latency_s": 4.9,
+          "answer_preview": "The survey presents **three** top-level optimization categories for efficient LLM inference: **data-level optimization, model-level optimization, and system-level optimization**. [Source 1][Source 3][Source 14]",
+          "events_seen": [
+            "thread",
+            "intent",
+            "sources",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "citation_check",
+            "followups",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "grounded",
+            "thread_id": "58e2a5aab4b2",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 938,
+              "rerank": 375,
+              "generate": 1409,
+              "total": 4842
+            },
+            "tokens": {
+              "prompt": 3093,
+              "completion": 52
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0,
+            "confidence": 95,
+            "confidence_breakdown": {
+              "retrieval": 95,
+              "reasoning": null,
+              "overall": 95
+            },
+            "rbac_blocked": false,
+            "citation_check": {
+              "total": 3,
+              "valid": 0,
+              "fabricated": [],
+              "weak": [
+                1,
+                3,
+                14
+              ],
+              "score": 0.0
+            }
+          },
+          "analytics_event": null,
+          "answer_mode": "grounded",
+          "tables_joined_preview": [],
+          "route_ok": true,
+          "retrieved_doc_ids": [
+            "08fa72ee0ea4"
+          ],
+          "retrieved_filenames_preview": [
+            "efficient_inference_survey.pdf"
+          ],
+          "source_ok": true,
+          "error": null
+        },
+        {
+          "id": "SCIENTIFIC_4",
+          "difficulty": 4,
+          "tier_name": "multi_step",
+          "label": "VRAM math: 140 GB LLaMA-2-70B / 80 GB A100",
+          "query": "LLaMA-2-70B model weights in FP16 format require 140 GB of VRAM. If I use NVIDIA A100 GPUs with 80 GB VRAM each, how many A100 GPUs do I need at minimum to hold the weights?",
+          "passed": false,
+          "checks": [
+            [
+              true,
+              "must_contain_any (1/1): ['2']"
+            ],
+            [
+              false,
+              "scalar 'min_a100_count' = 2 \u2192 no analytics event"
+            ],
+            [
+              true,
+              "route assertion: route ok: answer_mode='grounded'"
+            ],
+            [
+              true,
+              "source assertion: source ok: 1/1 retrieved docs match uploaded"
+            ]
+          ],
+          "latency_s": 6.1,
+          "answer_preview": "You need **at least 2 NVIDIA A100 GPUs** to hold the **140 GB** of FP16 weights, because each A100 has **80 GB VRAM**, and the document explicitly states that storing the LLaMA-2-70B model in FP16 requires **140 GB of VRAM**, requiring **\u201c2 NVIDIA A100 GPUs (each with 80 GB VRAM) for inference.\u201d** [Source 1][Source 3]",
+          "events_seen": [
+            "thread",
+            "topk_expanded",
+            "intent",
+            "sources",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "followups",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "grounded",
+            "thread_id": "b18e50a5cd92",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 1229,
+              "rerank": 491,
+              "generate": 1891,
+              "total": 6049
+            },
+            "tokens": {
+              "prompt": 2569,
+              "completion": 79
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0,
+            "confidence": 100,
+            "confidence_breakdown": {
+              "retrieval": 100,
+              "reasoning": null,
+              "overall": 100
+            },
+            "rbac_blocked": false,
+            "citation_check": {
+              "total": 2,
+              "valid": 2,
+              "fabricated": [],
+              "weak": [],
+              "score": 1.0
+            }
+          },
+          "analytics_event": null,
+          "answer_mode": "grounded",
+          "tables_joined_preview": [],
+          "route_ok": true,
+          "retrieved_doc_ids": [
+            "08fa72ee0ea4"
+          ],
+          "retrieved_filenames_preview": [
+            "efficient_inference_survey.pdf"
+          ],
+          "source_ok": true,
+          "error": null
+        },
+        {
+          "id": "SCIENTIFIC_5",
+          "difficulty": 5,
+          "tier_name": "abstention",
+          "label": "Learning rate recommendation (NOT in survey)",
+          "query": "What learning rate does this paper recommend for fine-tuning the inference optimization methods?",
+          "passed": false,
+          "checks": [
+            [
+              false,
+              "abstained via neither (\u2717 NO refusal signal (struct: no analytics))"
+            ],
+            [
+              false,
+              "hallucination check (\u2717 FLAGGED: ['recommended learning rate'])"
+            ],
+            [
+              true,
+              "route assertion: route ok: answer_mode='grounded'"
+            ],
+            [
+              true,
+              "source assertion: source ok: 1/1 retrieved docs match uploaded"
+            ]
+          ],
+          "latency_s": 4.5,
+          "answer_preview": "The provided documents do not specify a recommended learning rate for fine-tuning inference optimization methods.",
+          "events_seen": [
+            "thread",
+            "intent",
+            "sources",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "token",
+            "followups",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "grounded",
+            "thread_id": "bc742b3f2560",
+            "cached": false,
+            "latency_ms": {
+              "retrieve": 1128,
+              "rerank": 451,
+              "generate": 794,
+              "total": 4481
+            },
+            "tokens": {
+              "prompt": 1911,
+              "completion": 28
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0,
+            "confidence": 5,
+            "confidence_breakdown": {
+              "retrieval": 5,
+              "reasoning": null,
+              "overall": 5
+            },
+            "rbac_blocked": false,
+            "citation_check": {
+              "total": 0,
+              "valid": 0,
+              "fabricated": [],
+              "weak": [],
+              "score": 0.0
+            }
+          },
+          "analytics_event": null,
+          "answer_mode": "grounded",
+          "tables_joined_preview": [],
+          "route_ok": true,
+          "retrieved_doc_ids": [
+            "08fa72ee0ea4"
+          ],
+          "retrieved_filenames_preview": [
+            "efficient_inference_survey.pdf"
+          ],
+          "source_ok": true,
+          "error": null
+        }
+      ]
+    }
+  ]
+}

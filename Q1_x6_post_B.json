@@ -1,0 +1,241 @@
+{
+  "label": "Q1-x6-post-B",
+  "base_url": "http://localhost:8765",
+  "runs_per_query": 6,
+  "require_pass": 6,
+  "queries_file": "golden_queries.json",
+  "timestamp": "2026-04-23T16:27:09",
+  "summary": {
+    "total_queries": 1,
+    "meeting_ci": 0,
+    "total_wall_time_s": 137.7,
+    "stability_counts": {
+      "flaky": 1
+    }
+  },
+  "queries": {
+    "Q1": {
+      "label": "Critical services + behind-training + flagged vendors",
+      "query": "Show me critical services where the owning team is behind on mandatory training and uses any flagged vendors. Include the training gap and the vendor names.",
+      "bucket": "anchor",
+      "runs": 6,
+      "passed": 4,
+      "stability": "flaky",
+      "expected_fail": false,
+      "ci_pass": false,
+      "total_latency_s": 137.68,
+      "per_run": [
+        {
+          "passed": false,
+          "latency_s": 16.62,
+          "error": null,
+          "checks": [
+            {
+              "ok": false,
+              "msg": "rows=154 expected=22 (\u00b10)"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'Nova Platform (Core)'"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'analytics-svc-01'"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'data-svc-07'"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'NVIDIA (DGX)'"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'VendorConnect Solutions'"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'Engineering'"
+            }
+          ]
+        },
+        {
+          "passed": true,
+          "latency_s": 19.36,
+          "error": null,
+          "checks": [
+            {
+              "ok": true,
+              "msg": "rows=22 expected=22 (\u00b10)"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'Nova Platform (Core)'"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'analytics-svc-01'"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'data-svc-07'"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'NVIDIA (DGX)'"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'VendorConnect Solutions'"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'Engineering'"
+            }
+          ]
+        },
+        {
+          "passed": false,
+          "latency_s": 46.28,
+          "error": null,
+          "checks": [
+            {
+              "ok": false,
+              "msg": "rows=0 expected=22 (\u00b10)"
+            },
+            {
+              "ok": false,
+              "msg": "MISSING: 'Nova Platform (Core)'"
+            },
+            {
+              "ok": false,
+              "msg": "MISSING: 'analytics-svc-01'"
+            },
+            {
+              "ok": false,
+              "msg": "MISSING: 'data-svc-07'"
+            },
+            {
+              "ok": false,
+              "msg": "MISSING: 'NVIDIA (DGX)'"
+            },
+            {
+              "ok": false,
+              "msg": "MISSING: 'VendorConnect Solutions'"
+            },
+            {
+              "ok": false,
+              "msg": "MISSING: 'Engineering'"
+            }
+          ]
+        },
+        {
+          "passed": true,
+          "latency_s": 16.9,
+          "error": null,
+          "checks": [
+            {
+              "ok": true,
+              "msg": "rows=22 expected=22 (\u00b10)"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'Nova Platform (Core)'"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'analytics-svc-01'"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'data-svc-07'"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'NVIDIA (DGX)'"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'VendorConnect Solutions'"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'Engineering'"
+            }
+          ]
+        },
+        {
+          "passed": true,
+          "latency_s": 18.9,
+          "error": null,
+          "checks": [
+            {
+              "ok": true,
+              "msg": "rows=22 expected=22 (\u00b10)"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'Nova Platform (Core)'"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'analytics-svc-01'"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'data-svc-07'"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'NVIDIA (DGX)'"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'VendorConnect Solutions'"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'Engineering'"
+            }
+          ]
+        },
+        {
+          "passed": true,
+          "latency_s": 19.62,
+          "error": null,
+          "checks": [
+            {
+              "ok": true,
+              "msg": "rows=22 expected=22 (\u00b10)"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'Nova Platform (Core)'"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'analytics-svc-01'"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'data-svc-07'"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'NVIDIA (DGX)'"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'VendorConnect Solutions'"
+            },
+            {
+              "ok": true,
+              "msg": "present: 'Engineering'"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

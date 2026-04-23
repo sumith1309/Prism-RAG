@@ -1,0 +1,396 @@
+{
+  "label": "post_B_code_docs_recheck",
+  "wall_seconds": 0.1,
+  "passed": 2,
+  "total": 5,
+  "domains": [
+    {
+      "domain": "code_docs",
+      "doc_ids": [
+        "35ce94fec643",
+        "a9682e99e235"
+      ],
+      "passed": 2,
+      "total": 5,
+      "queries": [
+        {
+          "id": "CODE_DOCS_1",
+          "difficulty": 1,
+          "tier_name": "extraction",
+          "label": "Enum for predefined path param values",
+          "query": "What Python class does FastAPI recommend using for predefined path parameter values?",
+          "passed": true,
+          "checks": [
+            [
+              true,
+              "must_contain_any (1/1): ['Enum']"
+            ],
+            [
+              true,
+              "route assertion: route ok: answer_mode='grounded'"
+            ],
+            [
+              true,
+              "source assertion: source ok: 2/2 retrieved docs match uploaded"
+            ]
+          ],
+          "latency_s": 0.0,
+          "answer_preview": "FastAPI recommends using a standard Python `Enum` for predefined path parameter values.[Source 1]\n\n- It says that if you want valid path parameter values to be predefined, \u201cyou can use a standard Python `Enum`.\u201d[Source 1]\n- It also says to create an `Enum` class by importing `Enum` and creating a subclass that inherits from `str` and from `Enum`.[Source 1]",
+          "events_seen": [
+            "thread",
+            "cached",
+            "sources",
+            "token",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "grounded",
+            "thread_id": "a365af242a55",
+            "cached": true,
+            "latency_ms": {
+              "retrieve": 0,
+              "rerank": 0,
+              "generate": 0,
+              "total": 5
+            },
+            "tokens": {
+              "prompt": 1701,
+              "completion": 89
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0,
+            "confidence": 97,
+            "confidence_breakdown": {
+              "retrieval": 97,
+              "reasoning": null,
+              "overall": 97
+            },
+            "rbac_blocked": false,
+            "citation_check": null
+          },
+          "analytics_event": null,
+          "answer_mode": "grounded",
+          "tables_joined_preview": [],
+          "route_ok": true,
+          "retrieved_doc_ids": [
+            "35ce94fec643",
+            "a9682e99e235"
+          ],
+          "retrieved_filenames_preview": [
+            "path-params.md",
+            "query-params.md"
+          ],
+          "source_ok": true,
+          "error": null
+        },
+        {
+          "id": "CODE_DOCS_2",
+          "difficulty": 2,
+          "tier_name": "comparison",
+          "label": "Which have defaults \u2014 path vs query parameters",
+          "query": "Which have default values \u2014 path parameters or query parameters?",
+          "passed": false,
+          "checks": [
+            [
+              true,
+              "must_contain_all: 'query parameters' \u2713"
+            ],
+            [
+              true,
+              "must_contain_all: 'default' \u2713"
+            ],
+            [
+              false,
+              "must_not_contain: 'path parameters have default' \u2717 PRESENT"
+            ],
+            [
+              true,
+              "must_not_contain: 'path parameters can have defaults' \u2713 absent"
+            ],
+            [
+              true,
+              "route assertion: route ok: answer_mode='grounded'"
+            ],
+            [
+              true,
+              "source assertion: source ok: 2/2 retrieved docs match uploaded"
+            ]
+          ],
+          "latency_s": 0.0,
+          "answer_preview": "Query parameters can have default values because they are not a fixed part of a path. The documents give examples with `skip=0` and `limit=10` as default values for query parameters. [Source 1]\n\nPath parameters are part of the path itself, and the provided documents do not state that path parameters have default values. [Source 4][Source 8]",
+          "events_seen": [
+            "thread",
+            "cached",
+            "sources",
+            "token",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "grounded",
+            "thread_id": "f80d013899fc",
+            "cached": true,
+            "latency_ms": {
+              "retrieve": 0,
+              "rerank": 0,
+              "generate": 0,
+              "total": 5
+            },
+            "tokens": {
+              "prompt": 2123,
+              "completion": 85
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0,
+            "confidence": 89,
+            "confidence_breakdown": {
+              "retrieval": 89,
+              "reasoning": null,
+              "overall": 89
+            },
+            "rbac_blocked": false,
+            "citation_check": null
+          },
+          "analytics_event": null,
+          "answer_mode": "grounded",
+          "tables_joined_preview": [],
+          "route_ok": true,
+          "retrieved_doc_ids": [
+            "a9682e99e235",
+            "35ce94fec643"
+          ],
+          "retrieved_filenames_preview": [
+            "query-params.md",
+            "path-params.md"
+          ],
+          "source_ok": true,
+          "error": null
+        },
+        {
+          "id": "CODE_DOCS_3",
+          "difficulty": 3,
+          "tier_name": "aggregation",
+          "label": "Count of benefits in Path Params Recap",
+          "query": "In the Recap section of the Path Parameters tutorial, how many benefits of using Python type declarations are listed?",
+          "passed": false,
+          "checks": [
+            [
+              true,
+              "must_contain_any (1/1): ['4']"
+            ],
+            [
+              false,
+              "scalar 'benefit_count' = 4 \u2192 no analytics event"
+            ],
+            [
+              true,
+              "route assertion: route ok: answer_mode='grounded'"
+            ],
+            [
+              true,
+              "source assertion: source ok: 2/2 retrieved docs match uploaded"
+            ]
+          ],
+          "latency_s": 0.0,
+          "answer_preview": "The Recap section lists **4 benefits** of using Python type declarations: editor support, data parsing, data validation, and API annotation and automatic documentation.[Source 3][Source 5]",
+          "events_seen": [
+            "thread",
+            "cached",
+            "sources",
+            "token",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "grounded",
+            "thread_id": "ff84cbdbc0bb",
+            "cached": true,
+            "latency_ms": {
+              "retrieve": 0,
+              "rerank": 0,
+              "generate": 0,
+              "total": 3
+            },
+            "tokens": {
+              "prompt": 2924,
+              "completion": 47
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0,
+            "confidence": 41,
+            "confidence_breakdown": {
+              "retrieval": 41,
+              "reasoning": null,
+              "overall": 41
+            },
+            "rbac_blocked": false,
+            "citation_check": null
+          },
+          "analytics_event": null,
+          "answer_mode": "grounded",
+          "tables_joined_preview": [],
+          "route_ok": true,
+          "retrieved_doc_ids": [
+            "35ce94fec643",
+            "a9682e99e235"
+          ],
+          "retrieved_filenames_preview": [
+            "path-params.md",
+            "query-params.md"
+          ],
+          "source_ok": true,
+          "error": null
+        },
+        {
+          "id": "CODE_DOCS_4",
+          "difficulty": 4,
+          "tier_name": "multi_step",
+          "label": "path convertor behavior + URL resolution",
+          "query": "I define a path `/files/{file_path:path}`. What does the `:path` convertor do, and what would `file_path` be if I hit the URL `/files/home/user/data.txt`?",
+          "passed": true,
+          "checks": [
+            [
+              true,
+              "must_contain_all: 'home/user/data.txt' \u2713"
+            ],
+            [
+              true,
+              "must_contain_any (3/3): ['match any', 'Starlette', 'path']"
+            ],
+            [
+              true,
+              "route assertion: route ok: answer_mode='grounded'"
+            ],
+            [
+              true,
+              "source assertion: source ok: 2/2 retrieved docs match uploaded"
+            ]
+          ],
+          "latency_s": 0.0,
+          "answer_preview": "- The `:path` convertor tells FastAPI/Starlette that the path parameter should match any *path*, not just a single path segment. In `/files/{file_path:path}`, the parameter name is `file_path`, and `:path` declares that it can contain a path inside it. [Source 1]\n- With a route like `/files/{file_path}`, if you need `file_path` itself to contain a path such as `home/johndoe/myfile.txt`, the URL wo",
+          "events_seen": [
+            "thread",
+            "cached",
+            "sources",
+            "token",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "grounded",
+            "thread_id": "fa300bf49ead",
+            "cached": true,
+            "latency_ms": {
+              "retrieve": 0,
+              "rerank": 0,
+              "generate": 0,
+              "total": 3
+            },
+            "tokens": {
+              "prompt": 1693,
+              "completion": 144
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0,
+            "confidence": 95,
+            "confidence_breakdown": {
+              "retrieval": 95,
+              "reasoning": null,
+              "overall": 95
+            },
+            "rbac_blocked": false,
+            "citation_check": null
+          },
+          "analytics_event": null,
+          "answer_mode": "grounded",
+          "tables_joined_preview": [],
+          "route_ok": true,
+          "retrieved_doc_ids": [
+            "35ce94fec643",
+            "a9682e99e235"
+          ],
+          "retrieved_filenames_preview": [
+            "path-params.md",
+            "query-params.md"
+          ],
+          "source_ok": true,
+          "error": null
+        },
+        {
+          "id": "CODE_DOCS_5",
+          "difficulty": 5,
+          "tier_name": "abstention",
+          "label": "FastAPI 2.0 release date (NOT in docs)",
+          "query": "What is the release date for FastAPI version 2.0?",
+          "passed": false,
+          "checks": [
+            [
+              false,
+              "abstained via neither (\u2717 NO refusal signal (struct: no analytics))"
+            ],
+            [
+              true,
+              "hallucination check (\u2713 clean)"
+            ],
+            [
+              true,
+              "route assertion: route ok: answer_mode='grounded'"
+            ],
+            [
+              true,
+              "source assertion: source ok: 1/1 retrieved docs match uploaded"
+            ]
+          ],
+          "latency_s": 0.0,
+          "answer_preview": "The provided documents do not specify the release date for FastAPI version 2.0.",
+          "events_seen": [
+            "thread",
+            "cached",
+            "sources",
+            "token",
+            "done"
+          ],
+          "done_event": {
+            "ok": true,
+            "answer_mode": "grounded",
+            "thread_id": "1a4d5a486b9f",
+            "cached": true,
+            "latency_ms": {
+              "retrieve": 0,
+              "rerank": 0,
+              "generate": 0,
+              "total": 4
+            },
+            "tokens": {
+              "prompt": 1735,
+              "completion": 19
+            },
+            "corrective_retries": 0,
+            "faithfulness": -1.0,
+            "confidence": 5,
+            "confidence_breakdown": {
+              "retrieval": 5,
+              "reasoning": null,
+              "overall": 5
+            },
+            "rbac_blocked": false,
+            "citation_check": null
+          },
+          "analytics_event": null,
+          "answer_mode": "grounded",
+          "tables_joined_preview": [],
+          "route_ok": true,
+          "retrieved_doc_ids": [
+            "35ce94fec643"
+          ],
+          "retrieved_filenames_preview": [
+            "path-params.md"
+          ],
+          "source_ok": true,
+          "error": null
+        }
+      ]
+    }
+  ]
+}

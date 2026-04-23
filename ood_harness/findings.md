@@ -305,6 +305,14 @@ do not ship, diagnose.
   absent. Scoring needs a grounded-path fallback (scan answer text for
   scalar tokens; detect abstention via answer_mode in {"general",
   "refused", "unknown"} or by empty retrieval + question wording).
+  Additional scorer edge caught in B attempt:
+  - T5 abstention phrases need tense variants: `"does not specify"` vs
+    actual LLM output `"do not specify"`. Add "-inflection-aware" matching.
+  - T5 hallucination red flag `"recommended learning rate"` matches inside
+    clean abstention sentences like *"The paper does not specify a
+    recommended learning rate"* — textbook false positive. Either require
+    red flags to NOT be inside a negated clause, or move to LLM-judge for
+    tier-5 scoring.
 - **Phase B — sibling bug (single-table analytics path).**
   - `chat.py:1987-2002` fires analytics on `_data_intent == "data"`
     independent of `_tabular_count`.
@@ -312,4 +320,59 @@ do not ship, diagnose.
     `if scoped:` fallback as `find_target_docs`.
   - Fix both to close SCIENTIFIC_4-class leaks. Flag-gate, measure pre/
     post on the same OOD harness (should move 5/10 → 6/10).
+
+---
+
+## B — attempted 2026-04-23 evening, REVERTED for tomorrow
+
+**What shipped in the attempt (local-only, not committed):**
+`_scoped_skip_analytics = _routing_scoped and _tabular_count == 0`
+computed once after the scoped-routing gate log. Gates all three
+analytics entry points with `not _scoped_skip_analytics`:
+1. Multi-table at chat.py:1792 (redundant with A but symmetric)
+2. Ambiguous at chat.py:1951 (closes cosmetic disambiguation leak)
+3. Single-table at chat.py:1987 (the SCIENTIFIC_4 target)
+
+**Architectural result (measured on OOD harness, fresh cache):**
+- SCIENTIFIC_4 flipped: `analytics + 10_Assets_Licenses.xlsx` →
+  `grounded + efficient_inference_survey.pdf`. Architectural leak
+  closed. Gate log shows `SKIP-ANALYTICS: bypassing all analytics
+  paths` firing on 10/10 OOD queries.
+- OOD scoreboard: 5/10 post-B (same as post-A numerically; 10/10
+  architecturally correct vs post-A's 9/10 — T4 no longer leaks).
+
+**Why reverted:**
+Q1 × 6 on golden (B sanity): **4/6 flaky.** Post-A Q1 × 6 was 6/6.
+Combined Q1 samples across pre-A/post-A/post-B runs = 15/18 = 83% pass
+rate — Q1 is a **borderline-flaky query**, not the stable-pass the
+original pre-A baselines implied (pre_phase3.json and post_phase3_z.json
+each caught a lucky 3/3 sample). Gate log confirms Q1 in post-B takes
+the same SKIP branch as pre-A — B cannot mechanistically affect Q1,
+but at 83% true pass rate, any 3×20 full run can land anywhere from
+7/20 to 9/20 on noise alone.
+
+Rather than ship under this measurement uncertainty, reverted chat.py
+edits to clean-A state. A (`efac794`) stays on origin/main.
+
+**Local artifacts preserved for tomorrow's pickup:**
+- `ood_harness/baselines/post_B_*.json` — 4 OOD baselines captured
+  during B iterations (first full run, cache-flushed scientific,
+  cache-flushed code_docs, first attempt)
+- `ood_harness/baselines/sanity_check_1776929744.json` — initial post-A
+  sanity check
+- `Q1_x6_post_B.json` at repo root — 4/6 Q1 result
+
+**Tomorrow's plan (locked):**
+1. Re-apply B's chat.py change (the 3-guard + scoped_skip_analytics block)
+2. Run Q1 × 6 with FLAG OFF first. Establishes the current-LLM-state Q1
+   pass rate independent of A or B. Expected: 4-6/6 in the 83% regime.
+3. Run Q1 × 6 with FLAG ON (= B active). If indistinguishable from
+   flag-off, B is mechanically safe.
+4. Run full 3×20 golden post-B. If golden meeting-CI is within noise of
+   the 83% Q1 rate (i.e. 8-9/20 typical), ship B.
+5. Update `golden_queries.json` to mark Q1 as a ~83%-pass flaky query
+   (adjust `require_pass` to 2 of 3 or similar) — separate change,
+   separate commit. Fixes the gate's false assumption.
+6. Queue Finding 3 (scorer edges on grounded path) as next patch after
+   B lands.
 

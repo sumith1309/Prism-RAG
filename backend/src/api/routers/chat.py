@@ -16,6 +16,7 @@ Pipeline per request:
 
 import asyncio
 import json
+import os
 import re
 import time
 
@@ -1722,7 +1723,34 @@ async def chat(req: ChatRequest, user: CurrentUser = Depends(chat_rate_limit)):
         # like "Which Tier-1 customers ... whose account managers haven't
         # completed DPDP training?" have no aggregation keywords but clearly
         # need a cross-file JOIN, not a RAG document search.
-        _tabular_count = len(_list_tabular(max_doc_level=user.level))
+        #
+        # PRISM_SCOPED_ANALYTICS_ROUTING (A): when the caller scoped the
+        # chat to a specific `doc_ids` set, count only tabular docs IN THAT
+        # SCOPE — not the global visible set. A user who uploads a markdown
+        # tutorial and asks about it should not silently route to multi-
+        # table analytics against TechNova `.xlsx` they happen to have in
+        # the workspace. See findings.md Finding 1 + 1a + A design notes.
+        _all_tabular = _list_tabular(max_doc_level=user.level)
+        _scoped_analytics_routing = os.getenv("PRISM_SCOPED_ANALYTICS_ROUTING", "0") == "1"
+        _routing_scoped = bool(_scoped_analytics_routing and req.doc_ids)
+        if _routing_scoped:
+            _scope_ids = set(req.doc_ids)
+            _scoped_tabular = [d for d in _all_tabular if d.doc_id in _scope_ids]
+            _tabular_count = len(_scoped_tabular)
+            print(
+                f"[scoped-routing] SCOPED: global_tabular={len(_all_tabular)} "
+                f"→ scoped_tabular={_tabular_count} "
+                f"(req.doc_ids={list(_scope_ids)[:6]}{'...' if len(_scope_ids) > 6 else ''})",
+                flush=True,
+            )
+        else:
+            _tabular_count = len(_all_tabular)
+            print(
+                f"[scoped-routing] SKIP (flag={'on' if _scoped_analytics_routing else 'off'}, "
+                f"doc_ids={'empty' if not req.doc_ids else 'set'}): "
+                f"tabular_count={_tabular_count}",
+                flush=True,
+            )
 
         # ── Analytics follow-up detection ──────────────────────────────
         # When the previous assistant turn in this thread was analytics

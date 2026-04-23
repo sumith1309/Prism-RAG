@@ -113,6 +113,7 @@ class StreamedResponse:
     analytics: dict[str, Any] | None = None
     tokens: list[str] = field(default_factory=list)
     done: dict[str, Any] | None = None
+    sources: list = field(default_factory=list)  # sources SSE event payload
     events_seen: list[str] = field(default_factory=list)
 
     @property
@@ -148,6 +149,10 @@ def stream_chat(base_url: str, token: str, query: str, doc_ids: list[str],
         out.events_seen.append(event_name or "")
         if event_name == "analytics" and isinstance(data, dict):
             out.analytics = data
+        elif event_name == "sources" and isinstance(data, dict):
+            src = data.get("sources")
+            if isinstance(src, list):
+                out.sources = src
         elif event_name == "token" and isinstance(data, dict):
             delta = data.get("delta")
             if isinstance(delta, str):
@@ -191,6 +196,9 @@ class QueryReport:
     answer_mode: str = ""
     tables_joined_preview: list = field(default_factory=list)
     route_ok: bool = True
+    retrieved_doc_ids: list = field(default_factory=list)
+    retrieved_filenames_preview: list = field(default_factory=list)
+    source_ok: bool = True
     error: str | None = None
 
 
@@ -301,6 +309,71 @@ def _is_structural_abstention(analytics_event) -> tuple[bool, str]:
     return False, "no structural abstention signal"
 
 
+def _retrieved_doc_ids_and_filenames(resp: StreamedResponse) -> tuple[list, list]:
+    """Extract doc_ids + filenames actually retrieved, from either source
+    event (grounded path) or analytics event (analytics path). Returns
+    (doc_ids, filenames) — both lists deduped, preserving first-seen order."""
+    ids: list = []
+    fns: list = []
+    seen_ids: set = set()
+    if isinstance(resp.sources, list):
+        for s in resp.sources:
+            if isinstance(s, dict):
+                did = s.get("doc_id")
+                fn = s.get("filename")
+                if isinstance(did, str) and did and did not in seen_ids:
+                    ids.append(did)
+                    seen_ids.add(did)
+                    if isinstance(fn, str):
+                        fns.append(fn)
+    if isinstance(resp.analytics, dict):
+        did = resp.analytics.get("doc_id")
+        if isinstance(did, str) and did and did not in seen_ids:
+            ids.append(did)
+            seen_ids.add(did)
+        # filename in analytics can be a " + "-joined aggregate
+        fn = resp.analytics.get("filename")
+        if isinstance(fn, str) and fn:
+            for part in fn.split(" + "):
+                part = part.strip()
+                if part and part not in fns:
+                    fns.append(part)
+        dids = resp.analytics.get("doc_ids")
+        if isinstance(dids, list):
+            for d in dids:
+                if isinstance(d, str) and d and d not in seen_ids:
+                    ids.append(d)
+                    seen_ids.add(d)
+    return ids, fns
+
+
+def _source_check(resp: StreamedResponse, uploaded_doc_ids: list) -> tuple[bool, str, list, list]:
+    """Refinement b — verify retrieved sources come from the domain's
+    uploaded docs, not foreign corpus. Without this, A could fix the route
+    but retrieval could still leak foreign chunks via semantic similarity
+    and be invisible.
+
+    Returns (pass, diagnostic, retrieved_doc_ids, retrieved_filenames_preview).
+
+    Semantics:
+      - If retrieval is EMPTY (no sources or analytics doc): tolerate —
+        clean-abstention case; no retrieval to judge.
+      - If retrieval is non-empty: at least one retrieved doc_id must be
+        in uploaded_doc_ids. Else FAIL.
+    """
+    ids, fns = _retrieved_doc_ids_and_filenames(resp)
+    if not uploaded_doc_ids:
+        return True, "no expected set (skipped)", ids, fns[:5]
+    if not ids:
+        return True, "no retrieval events — tolerated (possible clean abstention)", ids, fns[:5]
+    expected = set(uploaded_doc_ids)
+    overlap = [i for i in ids if i in expected]
+    if overlap:
+        return True, f"source ok: {len(overlap)}/{len(ids)} retrieved docs match uploaded", ids, fns[:5]
+    foreign = [f for f in fns[:5] if f]
+    return False, f"FOREIGN RETRIEVAL: {len(ids)} retrieved, 0 match uploaded. Foreign filenames: {foreign}", ids, fns[:5]
+
+
 def _route_check(done_event, analytics_event, forbidden_routes) -> tuple[bool, str, str, list]:
     """Fix 3 — route assertion. If the response's `answer_mode` is in the
     domain's `forbidden_routes`, the query FAILS regardless of answer match.
@@ -362,8 +435,23 @@ def _apply_route_check(rep: QueryReport, resp: StreamedResponse,
         rep.passed = False
 
 
+def _apply_source_check(rep: QueryReport, resp: StreamedResponse,
+                        uploaded_doc_ids: list) -> None:
+    """Append source-assertion (refinement b). Complements route check:
+    route = 'which code path fired?'; source = 'did retrieval pull from
+    the user's actual docs?'. Both must pass for architectural correctness."""
+    ok, msg, ids, fns = _source_check(resp, uploaded_doc_ids or [])
+    rep.retrieved_doc_ids = ids
+    rep.retrieved_filenames_preview = fns
+    rep.source_ok = ok
+    rep.checks.append((ok, f"source assertion: {msg}"))
+    if not ok:
+        rep.passed = False
+
+
 def score_standard(qry: dict, resp: StreamedResponse,
-                   forbidden_routes: list | None = None) -> QueryReport:
+                   forbidden_routes: list | None = None,
+                   uploaded_doc_ids: list | None = None) -> QueryReport:
     """Tiers 1-4: answer-match checks (strings + scalar-in-result) + route assertion."""
     ans_text = _derive_answer_text(resp)
     rep = QueryReport(id=qry["id"], difficulty=qry["difficulty"],
@@ -422,11 +510,14 @@ def score_standard(qry: dict, resp: StreamedResponse,
 
     # Fix 3: route assertion
     _apply_route_check(rep, resp, forbidden_routes)
+    # Refinement b: source-retrieval assertion
+    _apply_source_check(rep, resp, uploaded_doc_ids or [])
     return rep
 
 
 def score_abstention(qry: dict, resp: StreamedResponse,
-                     forbidden_routes: list | None = None) -> QueryReport:
+                     forbidden_routes: list | None = None,
+                     uploaded_doc_ids: list | None = None) -> QueryReport:
     """Tier 5: must use abstention language (phrase OR structural),
     must NOT emit hallucination flags. Plus route assertion."""
     ans_text = _derive_answer_text(resp)
@@ -465,6 +556,8 @@ def score_abstention(qry: dict, resp: StreamedResponse,
 
     # Fix 3: route assertion
     _apply_route_check(rep, resp, forbidden_routes)
+    # Refinement b: source-retrieval assertion
+    _apply_source_check(rep, resp, uploaded_doc_ids or [])
     return rep
 
 
@@ -517,9 +610,11 @@ def run_domain(base_url: str, token: str, domain_dir: Path) -> dict[str, Any]:
             resp = stream_chat(base_url, token, qry["query"], doc_ids)
             is_abstention = qry["difficulty"] == 5
             if is_abstention:
-                rep = score_abstention(qry, resp, forbidden_routes=forbidden_routes)
+                rep = score_abstention(qry, resp, forbidden_routes=forbidden_routes,
+                                        uploaded_doc_ids=doc_ids)
             else:
-                rep = score_standard(qry, resp, forbidden_routes=forbidden_routes)
+                rep = score_standard(qry, resp, forbidden_routes=forbidden_routes,
+                                      uploaded_doc_ids=doc_ids)
             rep.latency_s = round(time.time() - t0, 1)
         except Exception as e:
             rep = QueryReport(id=qry["id"], difficulty=qry["difficulty"],
